@@ -3,9 +3,13 @@ use axum::extract::Request as AxumRequest;
 use reqwest::Client;
 use axum::http::StatusCode;
 use axum::body::Body;
+use axum::extract::State;
+use crate::balancer::SharedState;
 
-pub async fn proxy_request(request: AxumRequest) -> impl IntoResponse {
-    let client = Client::new();
+pub async fn proxy_request(
+        State(state): State<SharedState>,
+        request: AxumRequest) -> impl IntoResponse {
+    let client = &state.client;
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
@@ -13,7 +17,8 @@ pub async fn proxy_request(request: AxumRequest) -> impl IntoResponse {
     let headers = parts.headers;
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();//added here to convert axum body to bytes so reqwest can handle it
     
-    let target_uri = format!("http://127.0.0.1:4000{}", uri);
+    let available_backend = state.next_backend();
+    let target_uri = format!("{}{}", available_backend, uri);
 
     let proxy_request = client.request(method, target_uri)
     .headers(headers)
@@ -23,7 +28,7 @@ pub async fn proxy_request(request: AxumRequest) -> impl IntoResponse {
     .map_err(|e| e.to_string());
     let response = match proxy_request {
         Ok(response) => response,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+        Err(e) => return (StatusCode::BAD_GATEWAY, e).into_response(),
     };
     
     let status = response.status();
