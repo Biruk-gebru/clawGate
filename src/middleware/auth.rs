@@ -7,7 +7,7 @@ pub async fn require_auth(request: Request, next: Next) -> impl IntoResponse {
     let auth_header = request.headers().get("Authorization");
 
     match auth_header {
-        Some(header) => {
+        Some(_header) => {
             next.run(request).await
         }
         None => {
