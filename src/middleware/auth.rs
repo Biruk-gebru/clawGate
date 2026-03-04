@@ -8,7 +8,7 @@ pub async fn require_auth(request: Request, next: Next) -> impl IntoResponse {
 
     match auth_header {
         Some(header) => {
-            header.next.run(request).await
+            next.run(request).await
         }
         None => {
             StatusCode::UNAUTHORIZED.into_response()
