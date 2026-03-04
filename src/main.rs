@@ -4,7 +4,7 @@ mod balancer;
 mod middleware;
 
 // crate imports
-use crate::balancer::{SharedState, GateWayState};
+use crate::balancer::GateWayState;
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
 
@@ -15,7 +15,7 @@ use axum::{
 use axum::middleware::from_fn;
 use axum::error_handling::HandleErrorLayer;
 use reqwest::Client;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use std::time::Duration;

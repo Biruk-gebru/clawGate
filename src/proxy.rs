@@ -1,6 +1,5 @@
 use axum::response::{IntoResponse, Response};
 use axum::extract::Request as AxumRequest;
-use reqwest::Client;
 use axum::http::StatusCode;
 use axum::body::Body;
 use axum::extract::State;
@@ -21,18 +20,19 @@ pub async fn proxy_request(
     let target_uri = format!("{}{}", available_backend, uri);
 
     let proxy_request = client.request(method, target_uri)
-    .headers(headers)
-    .body(bytes)
-    .send()
-    .await
-    .map_err(|e| e.to_string());
+        .headers(headers)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| e.to_string()
+    );
+    
     let response = match proxy_request {
         Ok(response) => response,
         Err(e) => return (StatusCode::BAD_GATEWAY, e).into_response(),
     };
     
     let status = response.status();
-    let headers = response.headers().clone();
     let body = response.bytes().await.unwrap();
 
     Response::builder()
