@@ -2,7 +2,7 @@
 
 A lightweight API gateway built in Rust, featuring round-robin load balancing, middleware layers, hot-reloadable configuration, and a live terminal dashboard.
 
-![ClawGate TUI Dashboard](../doc/clawgate.png)
+![ClawGate TUI Dashboard](doc/clawgate.png)
 
 ---
 
