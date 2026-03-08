@@ -33,7 +33,8 @@ use tower::BoxError;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().init();
+    // Route tracing logs to stderr so they don't corrupt the TUI's stdout
+    tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
     // Load initial config from yaml
     let initial_backends = Config::load_config().backends;
@@ -50,10 +51,11 @@ async fn main() {
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
+        status_msg: String::new(),
     }));
 
     // Channel for config watcher 
-    let (tx, mut rx) = mpsc::channel(10);
+    let (tx, mut rx) = mpsc::channel::<Vec<String>>(10);
 
     // Shared gateway state (passed into every request handler via Axum State)
     let state = Arc::new(GateWayState {
@@ -64,13 +66,38 @@ async fn main() {
     });
 
     // Background task: receives new backend lists from the config watcher
-    // and hot-swaps them into the shared state
+    // and hot-swaps them into BOTH the balancer state AND the dashboard
     let backends_for_updater = Arc::clone(&state.backends);
+    let dashboard_for_updater = Arc::clone(&dashboard);
     tokio::spawn(async move {
         while let Some(new_backends) = rx.recv().await {
-            let mut backends = backends_for_updater.write().unwrap();
-            *backends = new_backends;
-            println!("Backends updated: {} active", backends.len());
+            // 1. Update the balancer's routing list
+            {
+                let mut backends = backends_for_updater.write().unwrap();
+                *backends = new_backends.clone();
+            }
+
+            // 2. Sync the dashboard's backend list so the TUI redraws correctly
+            {
+                let mut dash = dashboard_for_updater.lock().unwrap();
+
+                // Add any new backends (preserve hit counts for existing ones)
+                for url in &new_backends {
+                    if !dash.backends.iter().any(|b| &b.url == url) {
+                        dash.backends.push(BackendInfo {
+                            url: url.clone(),
+                            request_count: 0,
+                            last_hit: None,
+                        });
+                    }
+                }
+
+                // Remove backends that were deleted from config.yaml
+                dash.backends.retain(|b| new_backends.contains(&b.url));
+
+                // Update status message shown in TUI title bar (no println! — that corrupts the terminal)
+                dash.status_msg = format!("Config reloaded: {} backends active", new_backends.len());
+            }
         }
     });
 
@@ -89,8 +116,7 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    // Spawn axum server as a background task — it must not block main()
-    // because the TUI needs to run on the main thread below
+    // Axum runs as a background task so the TUI can own the main thread
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });

@@ -82,11 +82,20 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
     let log_area     = sections[2];
 
     // ── Title bar ──────────────────────────────────────────────────────────
-    let title_text = format!(
-        " 🦀 ClawGate  |  Backends: {}  |  Total Requests: {}  |  Press 'q' to quit ",
-        dash.backends.len(),
-        dash.total_request,
-    );
+    let title_text = if dash.status_msg.is_empty() {
+        format!(
+            " 🦀 ClawGate  |  Backends: {}  |  Total Requests: {}  |  Press 'q' to quit ",
+            dash.backends.len(),
+            dash.total_request,
+        )
+    } else {
+        format!(
+            " 🦀 ClawGate  |  Backends: {}  |  Total Requests: {}  |  {}  |  Press 'q' to quit ",
+            dash.backends.len(),
+            dash.total_request,
+            dash.status_msg,
+        )
+    };
     let title = Paragraph::new(title_text)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::ALL));

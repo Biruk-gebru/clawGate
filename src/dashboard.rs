@@ -20,6 +20,7 @@ pub struct DashboardState {
     pub backends: Vec<BackendInfo>,
     pub recent_request: VecDeque<RequestLog>,
     pub total_request: u64,
+    pub status_msg: String, // shown in the TUI title — replaces println!
 }
 
 pub type SharedDashboard = Arc<Mutex<DashboardState>>; 
