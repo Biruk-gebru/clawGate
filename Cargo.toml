@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.8"
+crossterm = "0.29.0"
 notify = "8.2.0"
+ratatui = "0.30.0"
 reqwest = "0.13.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"

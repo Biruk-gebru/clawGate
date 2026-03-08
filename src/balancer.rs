@@ -3,12 +3,16 @@ use std::sync::Arc;
 use reqwest::Client;
 use std::sync::RwLock;
 
+
+use crate::dashboard::SharedDashboard;
+
 pub type SharedState = Arc<GateWayState>;
 //A struct to hold the state of the gateway
 pub struct GateWayState {
     pub backends: Arc<RwLock<Vec<String>>>,
     pub counter: AtomicUsize,//to avoid data race
     pub client: Client,//to have a single client at start up for all connections 
+    pub dashboard: SharedDashboard,//contain the logs
 }
 
 impl GateWayState {
