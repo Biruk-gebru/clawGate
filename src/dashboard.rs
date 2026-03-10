@@ -6,6 +6,9 @@ pub struct BackendInfo {
     pub url: String,
     pub request_count: u64,
     pub last_hit: Option<Instant>,
+    pub health_path: String,
+    pub is_healthy: bool,
+    pub last_checked: Option<Instant>,
 }
 
 pub struct RequestLog {
@@ -21,6 +24,7 @@ pub struct DashboardState {
     pub recent_request: VecDeque<RequestLog>,
     pub total_request: u64,
     pub status_msg: String, // shown in the TUI title — replaces println!
+    pub health_check_interval_secs: u64,
 }
 
 pub type SharedDashboard = Arc<Mutex<DashboardState>>; 

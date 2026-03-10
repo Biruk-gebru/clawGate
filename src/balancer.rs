@@ -3,7 +3,6 @@ use std::sync::Arc;
 use reqwest::Client;
 use std::sync::RwLock;
 
-
 use crate::dashboard::SharedDashboard;
 
 pub type SharedState = Arc<GateWayState>;
@@ -16,15 +15,24 @@ pub struct GateWayState {
 }
 
 impl GateWayState {
-    pub fn next_backend(&self) -> String {
+    pub fn next_backend(&self) -> Option<String> {
         let backends = self.backends.read().unwrap();
-        //round robin
-        //chore: will make this better with better alorthims 
-        let index = self.counter.fetch_add(1, Ordering::Relaxed) % backends.len();//atomic adding and return the index
-        backends[index].clone()
+        let dash = self.dashboard.lock().unwrap();
+
+        // Filter to only backends marked healthy (unknown = assume healthy so new backends work)
+        let healthy_backends: Vec<&String> = backends.iter().filter(|url| {
+            dash.backends.iter()
+                .find(|b| &b.url == *url)
+                .map(|b| b.is_healthy)   // field is is_healthy in BackendInfo
+                .unwrap_or(true)
+        }).collect();
+
+        if healthy_backends.is_empty() {
+            return None;
+        }
+
+        // Round-robin over the HEALTHY list only
+        let index = self.counter.fetch_add(1, Ordering::Relaxed) % healthy_backends.len();
+        Some(healthy_backends[index].clone())
     }
-
 }
-
-
-

@@ -116,39 +116,43 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
             .map(|t| t.elapsed() < Duration::from_millis(300))
             .unwrap_or(false);
 
-        let border_style = if is_active {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
+        // Three states: DOWN (red) > ACTIVE (green) > idle (white)
+        let border_style = match (backend.is_healthy, is_active) {
+            (false, _)   => Style::default().fg(Color::Red),
+            (true, true) => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            (true, false)=> Style::default().fg(Color::White),
         };
 
-        // Extract just the port from the URL for a clean label
-        let label = backend
-            .url
-            .split(':')
-            .last()
-            .unwrap_or(&backend.url)
-            .to_string();
+        // Extract just the port for a clean label
+        let label = backend.url.split(':').last().unwrap_or(&backend.url).to_string();
 
-        let status_line = if is_active { "● ACTIVE" } else { "  idle  " };
-        let block_title = format!(" 🖥  :{} ", label);
+        let (status_text, status_color) = match (backend.is_healthy, is_active) {
+            (false, _)   => ("🔴 DOWN",   Color::Red),
+            (true, true) => ("🟢 ACTIVE", Color::Green),
+            (true, false)=> ("⬜ idle",   Color::DarkGray),
+        };
+
+        // Show last-checked age so user can see how fresh the health info is
+        let checked_ago = backend.last_checked
+            .map(|t| format!("  checked {}s ago", t.elapsed().as_secs()))
+            .unwrap_or_else(|| "  not checked yet".to_string());
 
         let content = vec![
             Line::from(format!("  Hits: {}", backend.request_count)),
             Line::from(Span::styled(
-                format!("  {}", status_line),
-                if is_active {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
+                format!("  {}", status_text),
+                Style::default().fg(status_color),
+            )),
+            Line::from(Span::styled(
+                checked_ago,
+                Style::default().fg(Color::DarkGray),
             )),
         ];
 
         let server_widget = Paragraph::new(content)
             .block(
                 Block::default()
-                    .title(block_title)
+                    .title(format!(" 🖥  :{} ", label))
                     .borders(Borders::ALL)
                     .border_style(border_style),
             );

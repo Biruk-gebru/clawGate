@@ -5,12 +5,13 @@ mod middleware;
 mod config;
 mod dashboard;
 mod tui;
+mod health;
 
 // crate imports
 use crate::balancer::GateWayState;
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
-use crate::config::Config;
+use crate::config::{Config, BackendConfig};
 use crate::dashboard::{BackendInfo, DashboardState, SharedDashboard};
 
 // dependency imports
@@ -36,34 +37,49 @@ async fn main() {
     // Route tracing logs to stderr so they don't corrupt the TUI's stdout
     tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
-    // Load initial config from yaml
-    let initial_backends = Config::load_config().backends;
+    // Load the full config struct (not just .backends — we need interval_secs too)
+    let config_data: Config = Config::load_config();
+    let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
 
-    // Shared backend list (hot-swappable via config watcher)
-    let config = Arc::new(RwLock::new(initial_backends.clone()));
+    // The balancer only needs URLs — extract them from BackendConfig
+    let initial_urls: Vec<String> = config_data.backends.iter().map(|b| b.url.clone()).collect();
 
-    // Build dashboard — initialize backend info from the loaded list
+    // Shared backend URL list (hot-swappable via config watcher)
+    let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
+
+    // Build dashboard — initialize BackendInfo from the loaded config
     let dashboard: SharedDashboard = Arc::new(Mutex::new(DashboardState {
-        backends: initial_backends.iter().map(|url| BackendInfo {
-            url: url.clone(),
+        backends: config_data.backends.iter().map(|b| BackendInfo {
+            url: b.url.clone(),
+            health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
             request_count: 0,
             last_hit: None,
+            is_healthy: true,          // assume healthy until first check
+            last_checked: None,
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
         status_msg: String::new(),
+        health_check_interval_secs: interval_secs,
     }));
 
-    // Channel for config watcher 
-    let (tx, mut rx) = mpsc::channel::<Vec<String>>(10);
+    // Channel for config watcher — carries Vec<BackendConfig> now
+    let (tx, mut rx) = mpsc::channel::<Vec<BackendConfig>>(10);
 
     // Shared gateway state (passed into every request handler via Axum State)
     let state = Arc::new(GateWayState {
-        backends: config,
+        backends: Arc::clone(&backends_lock),
         counter: AtomicUsize::new(0),
         client: Client::new(),
         dashboard: Arc::clone(&dashboard),
     });
+
+    // Start the health checker AFTER state is created so we can clone state.client
+    health::start_health_checker(
+        Arc::clone(&dashboard),
+        state.client.clone(),
+        interval_secs,
+    );
 
     // Background task: receives new backend lists from the config watcher
     // and hot-swaps them into BOTH the balancer state AND the dashboard
@@ -71,10 +87,12 @@ async fn main() {
     let dashboard_for_updater = Arc::clone(&dashboard);
     tokio::spawn(async move {
         while let Some(new_backends) = rx.recv().await {
-            // 1. Update the balancer's routing list
+            let new_urls: Vec<String> = new_backends.iter().map(|b| b.url.clone()).collect();
+
+            // 1. Update the balancer's URL list
             {
                 let mut backends = backends_for_updater.write().unwrap();
-                *backends = new_backends.clone();
+                *backends = new_urls.clone();
             }
 
             // 2. Sync the dashboard's backend list so the TUI redraws correctly
@@ -82,21 +100,23 @@ async fn main() {
                 let mut dash = dashboard_for_updater.lock().unwrap();
 
                 // Add any new backends (preserve hit counts for existing ones)
-                for url in &new_backends {
-                    if !dash.backends.iter().any(|b| &b.url == url) {
+                for bc in &new_backends {
+                    if !dash.backends.iter().any(|b| b.url == bc.url) {
                         dash.backends.push(BackendInfo {
-                            url: url.clone(),
+                            url: bc.url.clone(),
+                            health_path: bc.health_path.clone().unwrap_or_else(|| "/".to_string()),
                             request_count: 0,
                             last_hit: None,
+                            is_healthy: true,
+                            last_checked: None,
                         });
                     }
                 }
 
-                // Remove backends that were deleted from config.yaml
-                dash.backends.retain(|b| new_backends.contains(&b.url));
+                // Remove backends deleted from config.yaml
+                dash.backends.retain(|b| new_urls.contains(&b.url));
 
-                // Update status message shown in TUI title bar (no println! — that corrupts the terminal)
-                dash.status_msg = format!("Config reloaded: {} backends active", new_backends.len());
+                dash.status_msg = format!("Config reloaded: {} backends active", new_urls.len());
             }
         }
     });

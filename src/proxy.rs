@@ -9,20 +9,25 @@ use crate::dashboard::RequestLog;
 
 pub async fn proxy_request(State(state): State<SharedState>, request: AxumRequest) -> impl IntoResponse {
     let client = &state.client;
-    let start_time = Instant::now(); // start timing before we do any work
+    let start_time = Instant::now();
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
     let uri = parts.uri;
     let headers = parts.headers;
-    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();//added here to convert axum body to bytes so reqwest can handle it
+    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
 
-    let available_backend = state.next_backend();
-    let target_uri = format!("{}{}", available_backend, uri);
+    // Get the next healthy backend — returns None if all are down
+    let available_backend = match state.next_backend() {
+        Some(b) => b,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
+    };
 
-    // Save string versions BEFORE method/uri are moved into the request below
+    // Save string versions BEFORE method/uri are moved into the reqwest call below
     let method_str = method.to_string();
     let path_str = uri.to_string();
+
+    let target_uri = format!("{}{}", available_backend, uri);
 
     let proxy_response = client.request(method, target_uri)
         .headers(headers)
@@ -39,7 +44,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let duration = start_time.elapsed().as_millis();
     let status = response.status();
 
-    // Record metrics
+    // Record metrics — scoped block so the lock drops before the .await below
     {
         let mut dash = state.dashboard.lock().unwrap();
 
@@ -60,7 +65,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         if dash.recent_request.len() > 20 {
             dash.recent_request.pop_back();
         }
-    } // created to drop dash
+    } // lock released here
 
     let body = response.bytes().await.unwrap();
 
