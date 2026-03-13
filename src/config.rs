@@ -9,10 +9,24 @@ pub struct BackendConfig {
     pub health_path: Option<String>,
 }
 
+#[derive(serde::Deserialize, Clone)]
+pub struct CircuitBreakerConfig {
+    pub failure_threshold: u64,
+    pub cooldown: u64,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        CircuitBreakerConfig { failure_threshold: 5, cooldown: 30 }
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct Config {
     pub backends: Vec<BackendConfig>,
     pub health_check_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub circuit_breaker: CircuitBreakerConfig,
 }
 
 impl Config {

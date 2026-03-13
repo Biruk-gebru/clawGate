@@ -3,7 +3,7 @@ use std::sync::Arc;
 use reqwest::Client;
 use std::sync::RwLock;
 
-use crate::dashboard::SharedDashboard;
+use crate::dashboard::{SharedDashboard, CircuitState};
 
 pub type SharedState = Arc<GateWayState>;
 //A struct to hold the state of the gateway
@@ -23,7 +23,11 @@ impl GateWayState {
         let healthy_backends: Vec<&String> = backends.iter().filter(|url| {
             dash.backends.iter()
                 .find(|b| &b.url == *url)
-                .map(|b| b.is_healthy)   // field is is_healthy in BackendInfo
+                .map(|b| match &b.circuit_state {
+                    CircuitState::Closed => b.is_healthy,
+                    CircuitState::Open { .. } => false,
+                    CircuitState::HalfOpen => true,
+                })   
                 .unwrap_or(true)
         }).collect();
 

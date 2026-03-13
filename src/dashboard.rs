@@ -2,6 +2,24 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone, Debug)]
+pub enum CircuitState {
+    Closed,
+    Open { tripped_at: Instant },
+    HalfOpen,
+}
+
+impl PartialEq for CircuitState {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (CircuitState::Closed, CircuitState::Closed)
+            | (CircuitState::Open { .. }, CircuitState::Open { .. })
+            | (CircuitState::HalfOpen, CircuitState::HalfOpen)
+        )
+    }
+}
+
 pub struct BackendInfo {
     pub url: String,
     pub request_count: u64,
@@ -9,6 +27,8 @@ pub struct BackendInfo {
     pub health_path: String,
     pub is_healthy: bool,
     pub last_checked: Option<Instant>,
+    pub failed_count: u64,
+    pub circuit_state: CircuitState,
 }
 
 pub struct RequestLog {

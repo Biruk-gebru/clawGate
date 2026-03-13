@@ -12,7 +12,7 @@ use crate::balancer::GateWayState;
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
 use crate::config::{Config, BackendConfig};
-use crate::dashboard::{BackendInfo, DashboardState, SharedDashboard};
+use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 
 // dependency imports
 use axum::Router;
@@ -56,6 +56,8 @@ async fn main() {
             last_hit: None,
             is_healthy: true,          // assume healthy until first check
             last_checked: None,
+            circuit_state: CircuitState::Closed,
+            failed_count: 0,
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
@@ -79,6 +81,8 @@ async fn main() {
         Arc::clone(&dashboard),
         state.client.clone(),
         interval_secs,
+        config_data.circuit_breaker.cooldown,
+        config_data.circuit_breaker.failure_threshold,
     );
 
     // Background task: receives new backend lists from the config watcher
@@ -109,6 +113,8 @@ async fn main() {
                             last_hit: None,
                             is_healthy: true,
                             last_checked: None,
+                            circuit_state: CircuitState::Closed,
+                            failed_count: 0,
                         });
                     }
                 }
