@@ -19,20 +19,35 @@ impl GateWayState {
         let backends = self.backends.read().unwrap();
         let dash = self.dashboard.lock().unwrap();
 
-        // Filter to only backends marked healthy (unknown = assume healthy so new backends work)
+        // Filter: eligible = not manually disabled AND circuit not Open
         let healthy_backends: Vec<&String> = backends.iter().filter(|url| {
             dash.backends.iter()
                 .find(|b| &b.url == *url)
-                .map(|b| match &b.circuit_state {
-                    CircuitState::Closed => b.is_healthy,
-                    CircuitState::Open { .. } => false,
-                    CircuitState::HalfOpen => true,
-                })   
+                .map(|b| {
+                    !b.manually_disabled && match &b.circuit_state {
+                        CircuitState::Closed => b.is_healthy,
+                        CircuitState::Open { .. } => false,
+                        CircuitState::HalfOpen => true,
+                    }
+                })
                 .unwrap_or(true)
         }).collect();
 
         if healthy_backends.is_empty() {
             return None;
+        }
+
+        // Pin: if a backend is pinned, send all traffic there directly.
+        // pinned_backend is an index into dash.backends (the full unfiltered list).
+        if let Some(pin_idx) = dash.pinned_backend {
+            if let Some(b) = dash.backends.get(pin_idx) {
+                let eligible = !b.manually_disabled
+                    && !matches!(b.circuit_state, CircuitState::Open { .. });
+                if eligible {
+                    return Some(b.url.clone());
+                }
+                // Pinned backend is down — fall through to normal round-robin
+            }
         }
 
         // Round-robin over the HEALTHY list only
