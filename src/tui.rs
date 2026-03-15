@@ -44,16 +44,55 @@ fn event_loop(
     dashboard: SharedDashboard,
 ) -> io::Result<()> {
     loop {
-        // Draw one frame — ratatui clears and redraws the whole screen
         terminal.draw(|frame| render(frame, &dashboard))?;
 
-        // Poll for input with a 50ms timeout → ~20 FPS refresh rate
-        // If no key in 50ms, we loop back and redraw (so stats update live)
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                // Only react to actual key presses (not releases)
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    return Ok(());
+                if key.kind != KeyEventKind::Press { continue; }
+
+                let mut dash = dashboard.lock().unwrap();
+                let count = dash.backends.len();
+
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+
+                    KeyCode::Left => {
+                        dash.selected_backend = dash.selected_backend.saturating_sub(1);
+                    }
+                    KeyCode::Right => {
+                        if count > 0 {
+                            dash.selected_backend = (dash.selected_backend + 1).min(count - 1);
+                        }
+                    }
+                    KeyCode::Char('d') => {
+                        let sel = dash.selected_backend;
+                        if let Some(b) = dash.backends.get_mut(sel) {
+                            b.manually_disabled = true;
+                            let port = b.url.split(':').last().unwrap_or("?").to_string();
+                            dash.status_msg = format!("⛔ :{} disabled", port);
+                        }
+                    }
+                    KeyCode::Char('e') => {
+                        let sel = dash.selected_backend;
+                        if let Some(b) = dash.backends.get_mut(sel) {
+                            b.manually_disabled = false;
+                            let port = b.url.split(':').last().unwrap_or("?").to_string();
+                            dash.status_msg = format!("✅ :{} re-enabled", port);
+                        }
+                    }
+                    KeyCode::Char('p') => {
+                        let sel = dash.selected_backend;
+                        dash.pinned_backend = Some(sel);
+                        let port = dash.backends.get(sel)
+                            .and_then(|b| b.url.split(':').last().map(|s| s.to_string()))
+                            .unwrap_or_else(|| "?".to_string());
+                        dash.status_msg = format!("📌 pinned to :{}", port);
+                    }
+                    KeyCode::Char('u') => {
+                        dash.pinned_backend = None;
+                        dash.status_msg = "unpinned — back to round-robin".to_string();
+                    }
+                    _ => {}
                 }
             }
         }
@@ -72,14 +111,16 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // title bar
-            Constraint::Length(7),  // server boxes
-            Constraint::Min(5),     // request log (fills remaining space)
+            Constraint::Length(8),  // server boxes (4 content lines + 2 border + padding)
+            Constraint::Min(5),     // request log
+            Constraint::Length(1),  // key hint footer
         ])
         .split(area);
 
     let title_area   = sections[0];
     let servers_area = sections[1];
     let log_area     = sections[2];
+    let hint_area    = sections[3];
 
     // ── Title bar ──────────────────────────────────────────────────────────
     let title_text = if dash.status_msg.is_empty() {
@@ -109,50 +150,76 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .constraints(vec![Constraint::Ratio(1, num_backends as u32); num_backends])
         .split(servers_area);
 
+    let selected = dash.selected_backend;
+    let pinned   = dash.pinned_backend;
+
     for (i, backend) in dash.backends.iter().enumerate() {
-        // "Active" = a request hit this backend in the last 300ms
         let is_active = backend
             .last_hit
             .map(|t| t.elapsed() < Duration::from_millis(300))
             .unwrap_or(false);
 
-        // Three states: DOWN (red) > ACTIVE (green) > idle (white)
-        let border_style = match (backend.is_healthy, is_active) {
-            (false, _)   => Style::default().fg(Color::Red),
-            (true, true) => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            (true, false)=> Style::default().fg(Color::White),
+        let is_selected = i == selected;
+        let is_pinned   = pinned == Some(i);
+
+        // Border colour priority: selected+pinned > selected > disabled > circuit/health
+        let border_style = if is_selected && is_pinned {
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+        } else if is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else if backend.manually_disabled {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            match (backend.is_healthy, is_active) {
+                (false, _)    => Style::default().fg(Color::Red),
+                (true, true)  => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                (true, false) => Style::default().fg(Color::White),
+            }
         };
 
-        // Extract just the port for a clean label
         let label = backend.url.split(':').last().unwrap_or(&backend.url).to_string();
 
-        let (status_text, status_color) = match (backend.is_healthy, is_active) {
-            (false, _)   => ("🔴 DOWN",   Color::Red),
-            (true, true) => ("🟢 ACTIVE", Color::Green),
-            (true, false)=> ("⬜ idle",   Color::DarkGray),
+        // Box title
+        let box_title = if backend.manually_disabled {
+            format!(" ⛔ :{} ", label)
+        } else if is_pinned {
+            format!(" 📌 :{} ", label)
+        } else {
+            format!(" 🖥  :{} ", label)
         };
 
-        // Show last-checked age so user can see how fresh the health info is
+        let (status_text, status_color) = if backend.manually_disabled {
+            ("⛔ disabled", Color::DarkGray)
+        } else {
+            match (backend.is_healthy, is_active) {
+                (false, _)    => ("🔴 DOWN",   Color::Red),
+                (true, true)  => ("🟢 ACTIVE", Color::Green),
+                (true, false) => ("⬜ idle",   Color::DarkGray),
+            }
+        };
+
         let checked_ago = backend.last_checked
             .map(|t| format!("  checked {}s ago", t.elapsed().as_secs()))
             .unwrap_or_else(|| "  not checked yet".to_string());
 
+        // 4th line: pin indicator or blank placeholder
+        let override_line = if is_pinned {
+            Line::from(Span::styled("  📌 PINNED", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)))
+        } else {
+            Line::from("")
+        };
+
         let content = vec![
             Line::from(format!("  Hits: {}", backend.request_count)),
-            Line::from(Span::styled(
-                format!("  {}", status_text),
-                Style::default().fg(status_color),
-            )),
-            Line::from(Span::styled(
-                checked_ago,
-                Style::default().fg(Color::DarkGray),
-            )),
+            Line::from(Span::styled(format!("  {}", status_text), Style::default().fg(status_color))),
+            Line::from(Span::styled(checked_ago, Style::default().fg(Color::DarkGray))),
+            override_line,
         ];
 
         let server_widget = Paragraph::new(content)
             .block(
                 Block::default()
-                    .title(format!(" 🖥  :{} ", label))
+                    .title(box_title)
                     .borders(Borders::ALL)
                     .border_style(border_style),
             );
@@ -207,4 +274,9 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
     );
 
     frame.render_widget(log_table, log_area);
+
+    // ── Key hint footer ────────────────────────────────────────────────────
+    let hint = Paragraph::new(" ← → move  |  d disable  |  e enable  |  p pin  |  u unpin  |  q quit")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(hint, hint_area);
 }
