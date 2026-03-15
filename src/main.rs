@@ -58,11 +58,14 @@ async fn main() {
             last_checked: None,
             circuit_state: CircuitState::Closed,
             failed_count: 0,
+            manually_disabled: false,
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
         status_msg: String::new(),
         health_check_interval_secs: interval_secs,
+        selected_backend: 0,
+        pinned_backend: None,
     }));
 
     // Channel for config watcher — carries Vec<BackendConfig> now
@@ -115,6 +118,7 @@ async fn main() {
                             last_checked: None,
                             circuit_state: CircuitState::Closed,
                             failed_count: 0,
+                            manually_disabled: false,
                         });
                     }
                 }
