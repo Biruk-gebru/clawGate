@@ -29,6 +29,7 @@ pub struct BackendInfo {
     pub last_checked: Option<Instant>,
     pub failed_count: u64,
     pub circuit_state: CircuitState,
+    pub manually_disabled: bool,
 }
 
 pub struct RequestLog {
@@ -45,6 +46,8 @@ pub struct DashboardState {
     pub total_request: u64,
     pub status_msg: String, // shown in the TUI title — replaces println!
     pub health_check_interval_secs: u64,
+    pub selected_backend: usize,
+    pub pinned_backend: Option<usize>,
 }
 
 pub type SharedDashboard = Arc<Mutex<DashboardState>>; 
