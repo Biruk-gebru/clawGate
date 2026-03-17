@@ -38,6 +38,9 @@ pub async fn require_auth(
     let key = DecodingKey::from_secret(auth.secret.as_bytes());
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
+    if let Some(iss) = &auth.issuer {
+        validation.set_issuer(&[iss.as_str()]);
+    }
 
     let token_data = match decode::<Claims>(token, &key, &validation) {
         Ok(data) => data,
