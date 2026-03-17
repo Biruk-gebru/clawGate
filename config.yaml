@@ -1,3 +1,9 @@
+auth:
+  secret: "myNameIsSlimShady"
+  required_claims:
+    - sub
+    - exp
+
 circuit_breaker:
   failure_threshold: 5
   cooldown: 30
@@ -8,4 +14,3 @@ backends:
   - url: "http://127.0.0.1:4001"
   - url: "http://127.0.0.1:4002"
   - url: "http://127.0.0.1:4003"
-  - url: "http://127.0.0.1:4004"
