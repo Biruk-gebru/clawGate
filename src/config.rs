@@ -4,6 +4,12 @@ use notify::Watcher;
 use std::path::Path;
 
 #[derive(serde::Deserialize, Clone)]
+pub struct AuthConfig {
+    pub secret: String,
+    pub required_claims: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize, Clone)]
 pub struct BackendConfig {
     pub url: String,
     pub health_path: Option<String>,
@@ -27,6 +33,7 @@ pub struct Config {
     pub health_check_interval_secs: Option<u64>,
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,
+    pub auth: Option<AuthConfig>,
 }
 
 impl Config {
