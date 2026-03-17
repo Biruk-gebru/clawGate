@@ -7,6 +7,7 @@ use std::path::Path;
 pub struct AuthConfig {
     pub secret: String,
     pub required_claims: Option<Vec<String>>,
+    pub issuer: Option<String>,
 }
 
 #[derive(serde::Deserialize, Clone)]
