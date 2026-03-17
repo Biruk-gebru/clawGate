@@ -11,7 +11,7 @@ mod health;
 use crate::balancer::GateWayState;
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
-use crate::config::{Config, BackendConfig};
+use crate::config::{Config, BackendConfig, BalancingMode};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 
 // dependency imports
@@ -42,8 +42,8 @@ async fn main() {
     let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
     let auth_cfg = Arc::new(config_data.auth.clone());
 
-    // The balancer only needs URLs — extract them from BackendConfig
-    let initial_urls: Vec<String> = config_data.backends.iter().map(|b| b.url.clone()).collect();
+    // Weighted round-robin URLs
+    let initial_urls: Vec<String> = expand_backends(&config_data.backends, config_data.balancing);
 
     // Shared backend URL list (hot-swappable via config watcher)
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
@@ -93,9 +93,10 @@ async fn main() {
     // and hot-swaps them into BOTH the balancer state AND the dashboard
     let backends_for_updater = Arc::clone(&state.backends);
     let dashboard_for_updater = Arc::clone(&dashboard);
+    let balancing_mode_for_updater = config_data.balancing; // Capture balancing mode
     tokio::spawn(async move {
         while let Some(new_backends) = rx.recv().await {
-            let new_urls: Vec<String> = new_backends.iter().map(|b| b.url.clone()).collect();
+            let new_urls: Vec<String> = expand_backends(&new_backends, balancing_mode_for_updater);
 
             // 1. Update the balancer's URL list
             {
@@ -124,10 +125,11 @@ async fn main() {
                     }
                 }
 
-                // Remove backends deleted from config.yaml
-                dash.backends.retain(|b| new_urls.contains(&b.url));
+                // Remove backends deleted from config.yaml (check against unique URLs, not expanded list)
+                let unique_urls: Vec<&str> = new_backends.iter().map(|b| b.url.as_str()).collect();
+                dash.backends.retain(|b| unique_urls.contains(&b.url.as_str()));
 
-                dash.status_msg = format!("Config reloaded: {} backends active", new_urls.len());
+                dash.status_msg = format!("Config reloaded: {} backends active", new_backends.len());
             }
         }
     });
@@ -156,4 +158,17 @@ async fn main() {
 
     // TUI runs on the main thread and blocks here until the user presses 'q'
     tui::run_tui(dashboard).expect("TUI crashed");
+}
+
+/// Expands a backend list into a rotation Vec, repeating each URL `weight` times.
+/// With mode=RoundRobin all weights are ignored and each URL appears exactly once.
+/// With mode=WeightedRoundRobin a backend with weight=3 gets 3 slots in the rotation.
+pub fn expand_backends(backends: &[BackendConfig], mode: BalancingMode) -> Vec<String> {
+    match mode {
+        BalancingMode::RoundRobin => backends.iter().map(|b| b.url.clone()).collect(),
+        BalancingMode::WeightedRoundRobin => backends
+            .iter()
+            .flat_map(|b| std::iter::repeat(b.url.clone()).take(b.weight as usize))
+            .collect(),
+    }
 }
