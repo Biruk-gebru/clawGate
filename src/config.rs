@@ -3,6 +3,14 @@ use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 
+#[derive(serde::Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BalancingMode {
+    #[default]
+    RoundRobin,
+    WeightedRoundRobin,
+}
+
 #[derive(serde::Deserialize, Clone)]
 pub struct AuthConfig {
     pub secret: String,
@@ -14,6 +22,8 @@ pub struct AuthConfig {
 pub struct BackendConfig {
     pub url: String,
     pub health_path: Option<String>,
+    #[serde(default = "default_weight")]
+    pub weight: u32, // for weighted round robin; defaults to 1
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -28,6 +38,8 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+fn default_weight() -> u32 { 1 }
+
 #[derive(serde::Deserialize)]
 pub struct Config {
     pub backends: Vec<BackendConfig>,
@@ -35,6 +47,8 @@ pub struct Config {
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,
     pub auth: Option<AuthConfig>,
+    #[serde(default)]
+    pub balancing: BalancingMode,
 }
 
 impl Config {
