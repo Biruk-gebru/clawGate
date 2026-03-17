@@ -54,6 +54,7 @@ async fn main() {
             url: b.url.clone(),
             health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
             request_count: 0,
+            weight: b.weight,
             last_hit: None,
             is_healthy: true,          // assume healthy until first check
             last_checked: None,
@@ -110,11 +111,15 @@ async fn main() {
 
                 // Add any new backends (preserve hit counts for existing ones)
                 for bc in &new_backends {
-                    if !dash.backends.iter().any(|b| b.url == bc.url) {
+                    if let Some(existing) = dash.backends.iter_mut().find(|b| b.url == bc.url) {
+                        existing.weight = bc.weight;
+                        existing.health_path = bc.health_path.clone().unwrap_or_else(|| "/".to_string());
+                    } else {
                         dash.backends.push(BackendInfo {
                             url: bc.url.clone(),
                             health_path: bc.health_path.clone().unwrap_or_else(|| "/".to_string()),
                             request_count: 0,
+                            weight: bc.weight,
                             last_hit: None,
                             is_healthy: true,
                             last_checked: None,

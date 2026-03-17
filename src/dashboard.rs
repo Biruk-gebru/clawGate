@@ -22,6 +22,7 @@ impl PartialEq for CircuitState {
 
 pub struct BackendInfo {
     pub url: String,
+    pub weight: u32,             // configured traffic weight (1 = default / equal share)
     pub request_count: u64,
     pub last_hit: Option<Instant>,
     pub health_path: String,

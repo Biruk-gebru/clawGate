@@ -111,7 +111,7 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // title bar
-            Constraint::Length(8),  // server boxes (4 content lines + 2 border + padding)
+            Constraint::Length(9),  // server boxes (5 content lines + 2 border + padding)
             Constraint::Min(5),     // request log
             Constraint::Length(1),  // key hint footer
         ])
@@ -209,8 +209,20 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
             Line::from("")
         };
 
+        // Weight line: cyan + bold if non-default (> 1), gray if default (= 1)
+        let weight_style = if backend.weight > 1 {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let weight_line = Line::from(Span::styled(
+            format!("  Weight: {}", backend.weight),
+            weight_style,
+        ));
+
         let content = vec![
-            Line::from(format!("  Hits: {}", backend.request_count)),
+            weight_line,
+            Line::from(format!("  Hits:   {}", backend.request_count)),
             Line::from(Span::styled(format!("  {}", status_text), Style::default().fg(status_color))),
             Line::from(Span::styled(checked_ago, Style::default().fg(Color::DarkGray))),
             override_line,
