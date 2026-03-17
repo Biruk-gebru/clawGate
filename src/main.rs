@@ -40,6 +40,7 @@ async fn main() {
     // Load the full config struct (not just .backends — we need interval_secs too)
     let config_data: Config = Config::load_config();
     let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
+    let auth_cfg = Arc::new(config_data.auth.clone());
 
     // The balancer only needs URLs — extract them from BackendConfig
     let initial_urls: Vec<String> = config_data.backends.iter().map(|b| b.url.clone()).collect();
@@ -137,7 +138,9 @@ async fn main() {
     let app = Router::new()
         .fallback(proxy_request)
         .with_state(state)
-        //.layer(from_fn(require_auth)) // re-enable for production
+        .layer(from_fn(move |req, next| {
+            require_auth(req, next, Arc::clone(&auth_cfg))
+        })) // re-enable for production
         .layer(ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|_: BoxError| async {StatusCode::SERVICE_UNAVAILABLE}))
             .layer(BufferLayer::new(1024))//add a buffer so axum gets a Clone type
