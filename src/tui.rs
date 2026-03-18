@@ -15,6 +15,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
+use std::sync::atomic::Ordering;
 use crate::dashboard::SharedDashboard;
 
 /// Entry point — call this from main() after spawning the axum server.
@@ -220,8 +221,20 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
             weight_style,
         ));
 
+        let active_conn = backend.active_connections.load(Ordering::Relaxed);
+        let conn_style = if active_conn > 0 {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let conn_line = Line::from(Span::styled(
+            format!("  Active:  {}", active_conn),
+            conn_style,
+        ));
+
         let content = vec![
             weight_line,
+            conn_line,
             Line::from(format!("  Hits:   {}", backend.request_count)),
             Line::from(Span::styled(format!("  {}", status_text), Style::default().fg(status_color))),
             Line::from(Span::styled(checked_ago, Style::default().fg(Color::DarkGray))),
