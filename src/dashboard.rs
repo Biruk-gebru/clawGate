@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicI64;
 
 #[derive(Clone, Debug)]
 pub enum CircuitState {
@@ -31,6 +32,7 @@ pub struct BackendInfo {
     pub failed_count: u64,
     pub circuit_state: CircuitState,
     pub manually_disabled: bool,
+    pub active_connections: Arc<AtomicI64>,
 }
 
 pub struct RequestLog {
