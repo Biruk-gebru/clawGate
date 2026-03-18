@@ -173,7 +173,7 @@ async fn main() {
 /// With mode=WeightedRoundRobin a backend with weight=3 gets 3 slots in the rotation.
 pub fn expand_backends(backends: &[BackendConfig], mode: BalancingMode) -> Vec<String> {
     match mode {
-        BalancingMode::RoundRobin | BalancingMode::LeastConnections => {
+        BalancingMode::RoundRobin | BalancingMode::LeastConnections | BalancingMode::IpHash => {
             backends.iter().map(|b| b.url.clone()).collect()
         }
         BalancingMode::WeightedRoundRobin => backends

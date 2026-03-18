@@ -25,9 +25,10 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let uri = parts.uri;
     let headers = parts.headers;
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+    let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
     // Get the next healthy backend — returns None if all are down
-    let available_backend = match state.next_backend() {
+    let available_backend = match state.next_backend(client_ip) {
         Some(b) => b,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
     };

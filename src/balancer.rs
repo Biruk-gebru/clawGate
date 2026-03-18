@@ -6,6 +6,9 @@ use std::sync::RwLock;
 use crate::dashboard::{SharedDashboard, CircuitState};
 use crate::config::BalancingMode;
 
+use rustc_hash::FxHasher;
+use std::hash::{Hash, Hasher};
+
 pub type SharedState = Arc<GateWayState>;
 //A struct to hold the state of the gateway
 pub struct GateWayState {
@@ -17,7 +20,7 @@ pub struct GateWayState {
 }
 
 impl GateWayState {
-    pub fn next_backend(&self) -> Option<String> {
+    pub fn next_backend(&self, client_ip: &str) -> Option<String> {
         let backends = self.backends.read().unwrap();
         let dash = self.dashboard.lock().unwrap();
         let balancing = self.balancing;
@@ -68,6 +71,12 @@ impl GateWayState {
                             .unwrap_or(i64::MAX)
                     })
                     .map(|url| url.to_string())
+            }
+            BalancingMode::IpHash => {
+                let mut hasher = FxHasher::default();
+                client_ip.hash(&mut hasher);
+                let index = (hasher.finish() as usize) % healthy_backends.len();
+                Some(healthy_backends[index].clone())
             }
         }
     }
