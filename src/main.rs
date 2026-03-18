@@ -21,7 +21,7 @@ use axum::error_handling::HandleErrorLayer;
 use reqwest::Client;
 use reqwest::StatusCode;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicI64, AtomicUsize};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
@@ -61,6 +61,7 @@ async fn main() {
             circuit_state: CircuitState::Closed,
             failed_count: 0,
             manually_disabled: false,
+            active_connections: Arc::new(AtomicI64::new(0)),
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
@@ -79,6 +80,7 @@ async fn main() {
         counter: AtomicUsize::new(0),
         client: Client::new(),
         dashboard: Arc::clone(&dashboard),
+        balancing: config_data.balancing,
     });
 
     // Start the health checker AFTER state is created so we can clone state.client
@@ -126,6 +128,7 @@ async fn main() {
                             circuit_state: CircuitState::Closed,
                             failed_count: 0,
                             manually_disabled: false,
+                            active_connections: Arc::new(AtomicI64::new(0)),
                         });
                     }
                 }
@@ -170,7 +173,9 @@ async fn main() {
 /// With mode=WeightedRoundRobin a backend with weight=3 gets 3 slots in the rotation.
 pub fn expand_backends(backends: &[BackendConfig], mode: BalancingMode) -> Vec<String> {
     match mode {
-        BalancingMode::RoundRobin => backends.iter().map(|b| b.url.clone()).collect(),
+        BalancingMode::RoundRobin | BalancingMode::LeastConnections => {
+            backends.iter().map(|b| b.url.clone()).collect()
+        }
         BalancingMode::WeightedRoundRobin => backends
             .iter()
             .flat_map(|b| std::iter::repeat(b.url.clone()).take(b.weight as usize))
