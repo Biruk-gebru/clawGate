@@ -9,6 +9,7 @@ pub enum BalancingMode {
     #[default]
     RoundRobin,
     WeightedRoundRobin,
+    LeastConnections,
 }
 
 #[derive(serde::Deserialize, Clone)]
