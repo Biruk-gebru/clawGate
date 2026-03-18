@@ -227,6 +227,7 @@ dependencies = [
  "notify",
  "ratatui",
  "reqwest",
+ "rustc-hash",
  "serde",
  "serde_json",
  "serde_yaml",
