@@ -10,6 +10,7 @@ pub enum BalancingMode {
     RoundRobin,
     WeightedRoundRobin,
     LeastConnections,
+    IpHash,
 }
 
 #[derive(serde::Deserialize, Clone)]
