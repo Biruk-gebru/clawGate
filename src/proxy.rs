@@ -3,9 +3,18 @@ use axum::extract::Request as AxumRequest;
 use axum::http::StatusCode;
 use axum::body::Body;
 use axum::extract::State;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 use crate::balancer::SharedState;
 use crate::dashboard::RequestLog;
+
+struct ConnectionGuard(Arc<AtomicI64>);
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 pub async fn proxy_request(State(state): State<SharedState>, request: AxumRequest) -> impl IntoResponse {
     let client = &state.client;
@@ -22,6 +31,20 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         Some(b) => b,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
     };
+
+    // Increment active connections for the chosen backend and clone the Arc for the RAII guard.
+    // The guard automatically decrements when proxy_request returns (any path — Ok or Err).
+    let conn_arc: Option<Arc<AtomicI64>> = {
+        let mut dash = state.dashboard.lock().unwrap();
+        dash.backends.iter_mut()
+            .find(|b| b.url == available_backend)
+            .map(|info| {
+                info.active_connections.fetch_add(1, Ordering::Relaxed);
+                Arc::clone(&info.active_connections)
+            })
+    };
+    // Hold the guard for the lifetime of the request — Drop decrements the counter.
+    let _guard = conn_arc.map(ConnectionGuard);
 
     // Save string versions BEFORE method/uri are moved into the reqwest call below
     let method_str = method.to_string();
