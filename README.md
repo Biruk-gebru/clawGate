@@ -2,7 +2,7 @@
 
 A learning-driven API gateway built in Rust — featuring smart routing, circuit breakers, JWT auth, canary deployments, and a live terminal dashboard.
 
-![ClawGate TUI Dashboard](../doc/clawgate3.png)
+![ClawGate TUI Dashboard](doc/clawgate3.png)
 
 ---
 
