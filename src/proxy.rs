@@ -6,6 +6,9 @@ use axum::extract::State;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
+use rand::RngExt;
+
+
 use crate::balancer::SharedState;
 use crate::dashboard::RequestLog;
 
@@ -36,11 +39,33 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
-    // Get the next healthy backend — returns None if all are down
-    let available_backend = match route.next_backend(client_ip, state.balancing) {
-        Some(b) => b,
-        None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
+    // 8C — Canary / A-B split: if the matched route has a split config, use weighted random
+    // selection to choose a backend group, then pick a URL from that group.
+    // Otherwise fall back to the route's standard next_backend() selection.
+    let available_backend: String = if let Some(split_groups) = &route.config.split {
+        let total_weight: u32 = split_groups.iter().map(|g| g.weight).sum();
+        assert!(total_weight > 0, "Split weights must sum to a positive number");
+
+        let roll: u32 = rand::rng().random_range(0..total_weight);
+        let mut cumulative = 0u32;
+        let chosen_group = split_groups.iter().find(|g| {
+            cumulative += g.weight;
+            roll < cumulative
+        }).expect("cumulative weight must cover roll — check split config");
+
+        // Pick round-robin within the chosen group's URL list.
+        // Simple: use the route's shared counter mod group size.
+        let idx = route.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % chosen_group.backends.len();
+        chosen_group.backends[idx].clone()
+    } else {
+        // No split — use normal balancing (round-robin / least-conn / ip-hash)
+        match route.next_backend(client_ip, state.balancing) {
+            Some(b) => b,
+            None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
+        }
     };
+
 
     // Increment active connections for the chosen backend and clone the Arc for the RAII guard.
     // The guard automatically decrements when proxy_request returns (any path — Ok or Err).
