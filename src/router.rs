@@ -1,4 +1,4 @@
-pub fn matches_path(pattern: $str, path: &str) -> bool {
+pub fn matches_path(pattern: &str, path: &str) -> bool {
     match pattern {
         "*" => true,
         p if p == path => true,
