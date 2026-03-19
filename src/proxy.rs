@@ -23,12 +23,20 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let (parts, body) = request.into_parts();
     let method = parts.method;
     let uri = parts.uri;
+    let path = uri.path();
+    let route_state = state.routes.iter().find(|r| crate::router::matches_path(&r.pattern, path));
+
+    let route = match route_state {
+        Some(r) => r,
+        None => return (StatusCode::NOT_FOUND, "No route matched").into_response(),
+    };
+
     let headers = parts.headers;
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
     // Get the next healthy backend — returns None if all are down
-    let available_backend = match state.next_backend(client_ip) {
+    let available_backend = match route.next_backend(client_ip, state.balancing) {
         Some(b) => b,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
     };
@@ -36,7 +44,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     // Increment active connections for the chosen backend and clone the Arc for the RAII guard.
     // The guard automatically decrements when proxy_request returns (any path — Ok or Err).
     let conn_arc: Option<Arc<AtomicI64>> = {
-        let mut dash = state.dashboard.lock().unwrap();
+        let mut dash = state.global_dashboard.lock().unwrap();
         dash.backends.iter_mut()
             .find(|b| b.url == available_backend)
             .map(|info| {
@@ -70,7 +78,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
 
     // Record metrics — scoped block so the lock drops before the .await below
     {
-        let mut dash = state.dashboard.lock().unwrap();
+        let mut dash = state.global_dashboard.lock().unwrap();
 
         if let Some(info) = dash.backends.iter_mut().find(|b| b.url == available_backend) {
             info.request_count += 1;
