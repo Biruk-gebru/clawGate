@@ -107,21 +107,40 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
 
     let area = frame.area();
 
-    // ── Outer layout: title bar | server boxes | request log ──────────────
+    // ── Server boxes — grouped by route label ──────────────────────────────
+    // Step 1: collect groups preserving config order (first-seen label wins order).
+    // Each group is (label, Vec<(global_index, &BackendInfo)>).
+    let mut groups: Vec<(String, Vec<(usize, &_)>)> = Vec::new();
+    for (i, b) in dash.backends.iter().enumerate() {
+        if let Some(group) = groups.iter_mut().find(|(lbl, _)| lbl == &b.route_label) {
+            group.1.push((i, b));
+        } else {
+            groups.push((b.route_label.clone(), vec![(i, b)]));
+        }
+    }
+
+    // Step 2: build vertical constraints — each group needs 1 (header) + 9 (boxes) = 10 rows.
+    // Whatever remains goes to the request log.
+    let num_groups = groups.len().max(1);
+    let mut vert_constraints: Vec<Constraint> = vec![
+        Constraint::Length(3),                            // title bar
+    ];
+    for _ in 0..num_groups {
+        vert_constraints.push(Constraint::Length(1));     // route header label
+        vert_constraints.push(Constraint::Length(9));     // backend box row
+    }
+    vert_constraints.push(Constraint::Min(5));            // request log
+    vert_constraints.push(Constraint::Length(1));         // footer
+
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),  // title bar
-            Constraint::Length(9),  // server boxes (5 content lines + 2 border + padding)
-            Constraint::Min(5),     // request log
-            Constraint::Length(1),  // key hint footer
-        ])
+        .constraints(vert_constraints)
         .split(area);
 
-    let title_area   = sections[0];
-    let servers_area = sections[1];
-    let log_area     = sections[2];
-    let hint_area    = sections[3];
+    let title_area = sections[0];
+    // groups occupy sections[1..1+num_groups*2], two slots each
+    let log_area   = sections[1 + num_groups * 2];
+    let hint_area  = sections[2 + num_groups * 2];
 
     // ── Title bar ──────────────────────────────────────────────────────────
     let title_text = if dash.status_msg.is_empty() {
@@ -143,117 +162,107 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, title_area);
 
-    // ── Server boxes ───────────────────────────────────────────────────────
-    // Split the servers row into N equal columns, one per backend
-    let num_backends = dash.backends.len().max(1); // avoid divide-by-zero
-    let server_columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(vec![Constraint::Ratio(1, num_backends as u32); num_backends])
-        .split(servers_area);
-
     let selected = dash.selected_backend;
     let pinned   = dash.pinned_backend;
 
-    for (i, backend) in dash.backends.iter().enumerate() {
-        let is_active = backend
-            .last_hit
-            .map(|t| t.elapsed() < Duration::from_millis(300))
-            .unwrap_or(false);
+    // Step 3: render each group
+    for (group_idx, (route_label, members)) in groups.iter().enumerate() {
+        let header_area = sections[1 + group_idx * 2];
+        let boxes_area  = sections[2 + group_idx * 2];
 
-        let is_selected = i == selected;
-        let is_pinned   = pinned == Some(i);
+        // ── Route group header ─────────────────────────────────────────────
+        let header_text = format!(" 🗂  {} ({} backend{}) ",
+            route_label,
+            members.len(),
+            if members.len() == 1 { "" } else { "s" }
+        );
+        let group_header = Paragraph::new(header_text)
+            .style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD));
+        frame.render_widget(group_header, header_area);
 
-        // Border colour priority: selected+pinned > selected > disabled > circuit/health
-        let border_style = if is_selected && is_pinned {
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
-        } else if is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else if backend.manually_disabled {
-            Style::default().fg(Color::DarkGray)
-        } else {
-            match (backend.is_healthy, is_active) {
-                (false, _)    => Style::default().fg(Color::Red),
-                (true, true)  => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                (true, false) => Style::default().fg(Color::White),
-            }
-        };
+        // ── Backend boxes in this group ────────────────────────────────────
+        let n = members.len().max(1);
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Ratio(1, n as u32); n])
+            .split(boxes_area);
 
-        let label = backend.url.split(':').last().unwrap_or(&backend.url).to_string();
+        for (col, (global_idx, backend)) in members.iter().enumerate() {
+            let i = *global_idx;
+            let is_active  = backend.last_hit.map(|t| t.elapsed() < Duration::from_millis(300)).unwrap_or(false);
+            let is_selected = i == selected;
+            let is_pinned   = pinned == Some(i);
 
-        // Box title
-        let box_title = if backend.manually_disabled {
-            format!(" ⛔ :{} ", label)
-        } else if is_pinned {
-            format!(" 📌 :{} ", label)
-        } else {
-            format!(" 🖥  :{} ", label)
-        };
+            let border_style = if is_selected && is_pinned {
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else if backend.manually_disabled {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                match (backend.is_healthy, is_active) {
+                    (false, _)    => Style::default().fg(Color::Red),
+                    (true, true)  => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    (true, false) => Style::default().fg(Color::White),
+                }
+            };
 
-        let (status_text, status_color) = if backend.manually_disabled {
-            ("⛔ disabled", Color::DarkGray)
-        } else {
-            match (backend.is_healthy, is_active) {
-                (false, _)    => ("🔴 DOWN",   Color::Red),
-                (true, true)  => ("🟢 ACTIVE", Color::Green),
-                (true, false) => ("⬜ idle",   Color::DarkGray),
-            }
-        };
+            let port_label = backend.url.split(':').last().unwrap_or(&backend.url).to_string();
+            let box_title = if backend.manually_disabled {
+                format!(" ⛔ :{} ", port_label)
+            } else if is_pinned {
+                format!(" 📌 :{} ", port_label)
+            } else {
+                format!(" 🖥  :{} ", port_label)
+            };
 
-        let checked_ago = backend.last_checked
-            .map(|t| format!("  checked {}s ago", t.elapsed().as_secs()))
-            .unwrap_or_else(|| "  not checked yet".to_string());
+            let (status_text, status_color) = if backend.manually_disabled {
+                ("⛔ disabled", Color::DarkGray)
+            } else {
+                match (backend.is_healthy, is_active) {
+                    (false, _)    => ("🔴 DOWN",   Color::Red),
+                    (true, true)  => ("🟢 ACTIVE", Color::Green),
+                    (true, false) => ("⬜ idle",   Color::DarkGray),
+                }
+            };
 
-        // 4th line: pin indicator or blank placeholder
-        let override_line = if is_pinned {
-            Line::from(Span::styled("  📌 PINNED", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)))
-        } else {
-            Line::from("")
-        };
+            let checked_ago = backend.last_checked
+                .map(|t| format!("  checked {}s ago", t.elapsed().as_secs()))
+                .unwrap_or_else(|| "  not checked yet".to_string());
 
-        // Weight line: cyan + bold if non-default (> 1), gray if default (= 1)
-        let weight_style = if backend.weight > 1 {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        let weight_line = Line::from(Span::styled(
-            format!("  Weight: {}", backend.weight),
-            weight_style,
-        ));
+            let override_line = if is_pinned {
+                Line::from(Span::styled("  📌 PINNED", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)))
+            } else {
+                Line::from("")
+            };
 
-        let active_conn = backend.active_connections.load(Ordering::Relaxed);
-        let conn_style = if active_conn > 0 {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        let conn_line = Line::from(Span::styled(
-            format!("  Active:  {}", active_conn),
-            conn_style,
-        ));
+            let weight_style = if backend.weight > 1 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
 
-        let content = vec![
-            Line::from(Span::styled(
-                format!("  Route:  {}", backend.route_label),
-                Style::default().fg(Color::Cyan),
-            )),
-            weight_line,
-            conn_line,
-            Line::from(format!("  Hits:   {}", backend.request_count)),
-            Line::from(Span::styled(format!("  {}", status_text), Style::default().fg(status_color))),
-            Line::from(Span::styled(checked_ago, Style::default().fg(Color::DarkGray))),
-            override_line,
-        ];
+            let active_conn = backend.active_connections.load(Ordering::Relaxed);
+            let conn_style  = if active_conn > 0 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
 
-        let server_widget = Paragraph::new(content)
-            .block(
-                Block::default()
-                    .title(box_title)
-                    .borders(Borders::ALL)
-                    .border_style(border_style),
-            );
+            let content = vec![
+                Line::from(Span::styled(format!("  Weight: {}", backend.weight), weight_style)),
+                Line::from(Span::styled(format!("  Active:  {}", active_conn), conn_style)),
+                Line::from(format!("  Hits:   {}", backend.request_count)),
+                Line::from(Span::styled(format!("  {}", status_text), Style::default().fg(status_color))),
+                Line::from(Span::styled(checked_ago, Style::default().fg(Color::DarkGray))),
+                override_line,
+            ];
 
-        frame.render_widget(server_widget, server_columns[i]);
+            let server_widget = Paragraph::new(content)
+                .block(Block::default().title(box_title).borders(Borders::ALL).border_style(border_style));
+
+            frame.render_widget(server_widget, columns[col]);
+        }
     }
 
     // ── Request log ────────────────────────────────────────────────────────
