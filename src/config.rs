@@ -6,17 +6,16 @@ use std::path::Path;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct HeaderMatch {
-    pub header: String,
-    pub value: String,
+    pub name: String,   // the header name to match on, e.g. "X-Version"
+    pub value: String,  // the expected value, e.g. "v2"
 }
 
 #[derive(serde::Deserialize, Clone)]
 pub struct RouteConfig {
     #[serde(rename = "match")]
-    pub match_pattern: String, 
+    pub match_pattern: Option<String>,    // None = header-only route (no path constraint)
     pub backends: Vec<BackendConfig>,
     pub match_header: Option<HeaderMatch>,
-    
 }
 
 #[derive(serde::Deserialize, Clone, Copy, Default)]
