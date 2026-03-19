@@ -5,10 +5,17 @@ use std::path::Path;
 
 
 #[derive(serde::Deserialize, Clone)]
+pub struct HeaderMatch {
+    pub header: String,
+    pub value: String,
+}
+
+#[derive(serde::Deserialize, Clone)]
 pub struct RouteConfig {
     #[serde(rename = "match")]
     pub match_pattern: String, 
     pub backends: Vec<BackendConfig>,
+    pub match_header: Option<HeaderMatch>,
     
 }
 
