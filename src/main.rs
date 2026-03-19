@@ -53,19 +53,30 @@ async fn main() {
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
 
     // Build dashboard — must come BEFORE routes so we can clone the Arc into each RouteState.
+    // For each backend, find which route it belongs to so we can display the label in the TUI.
     let dashboard: SharedDashboard = Arc::new(Mutex::new(DashboardState {
-        backends: config_data.backends.iter().map(|b| BackendInfo {
-            url: b.url.clone(),
-            health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
-            request_count: 0,
-            weight: b.weight,
-            last_hit: None,
-            is_healthy: true,          // assume healthy until first check
-            last_checked: None,
-            circuit_state: CircuitState::Closed,
-            failed_count: 0,
-            manually_disabled: false,
-            active_connections: Arc::new(AtomicI64::new(0)),
+        backends: config_data.backends.iter().map(|b| {
+            // Find the first route that contains this backend URL
+            let label = config_data.routes.iter()
+                .find(|r| r.backends.iter().any(|rb| rb.url == b.url))
+                .map(|r| r.label.clone()
+                    .unwrap_or_else(|| r.match_pattern.clone().unwrap_or_else(|| "*".to_string())))
+                .unwrap_or_else(|| "default".to_string());
+
+            BackendInfo {
+                url: b.url.clone(),
+                health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
+                request_count: 0,
+                weight: b.weight,
+                last_hit: None,
+                is_healthy: true,
+                last_checked: None,
+                circuit_state: CircuitState::Closed,
+                failed_count: 0,
+                manually_disabled: false,
+                active_connections: Arc::new(AtomicI64::new(0)),
+                route_label: label,
+            }
         }).collect(),
         recent_request: VecDeque::new(),
         total_request: 0,
@@ -84,6 +95,8 @@ async fn main() {
                 match_pattern: Some("*".to_string()),
                 backends: config_data.backends.clone(),
                 match_header: None,
+                split: None,
+                label: None,
             },
             backends: Arc::clone(&backends_lock),
             counter: AtomicUsize::new(0),
@@ -159,6 +172,7 @@ async fn main() {
                             failed_count: 0,
                             manually_disabled: false,
                             active_connections: Arc::new(AtomicI64::new(0)),
+                            route_label: "reloaded".to_string(),
                         });
                     }
                 }
