@@ -9,6 +9,10 @@ circuit_breaker:
   cooldown: 30
 
 health_check_interval_secs: 5
+balancing: round_robin
+
+# Top-level backends — still used by the health checker and hot-reload watcher.
+# When a `routes:` block is present, the router uses per-route backend lists instead.
 backends:
   - url: "http://127.0.0.1:4000"
     weight: 3
@@ -17,3 +21,20 @@ backends:
   - url: "http://127.0.0.1:4002"
     weight: 2
   - url: "http://127.0.0.1:4003"
+
+# Phase 8A — path-based routing rules.
+# Evaluated top-to-bottom; first match wins.
+# "*" catch-all MUST be last.
+routes:
+  - match: "/api/*"
+    backends:
+      - url: "http://127.0.0.1:4000"
+      - url: "http://127.0.0.1:4001"
+
+  - match: "/static/*"
+    backends:
+      - url: "http://127.0.0.1:4002"
+
+  - match: "*"           # catch-all — handles everything not matched above
+    backends:
+      - url: "http://127.0.0.1:4003"
