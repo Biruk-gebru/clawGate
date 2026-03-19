@@ -3,6 +3,11 @@ use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 
+#[derive(serde::Deserialize, Clone)]
+pub struct SplitGroupConfig {
+    pub backends: Vec<String>,
+    pub weight: u32,
+}
 
 #[derive(serde::Deserialize, Clone)]
 pub struct HeaderMatch {
@@ -13,9 +18,12 @@ pub struct HeaderMatch {
 #[derive(serde::Deserialize, Clone)]
 pub struct RouteConfig {
     #[serde(rename = "match")]
-    pub match_pattern: Option<String>,    // None = header-only route (no path constraint)
+    pub match_pattern: Option<String>,
+    #[serde(default)]
     pub backends: Vec<BackendConfig>,
     pub match_header: Option<HeaderMatch>,
+    pub split: Option<Vec<SplitGroupConfig>>,  // for 8C canary: [{backends:[...], weight:90}, ...]
+    pub label: Option<String>,                 // optional display name shown in TUI
 }
 
 #[derive(serde::Deserialize, Clone, Copy, Default)]
