@@ -6,9 +6,10 @@ mod config;
 mod dashboard;
 mod tui;
 mod health;
+mod router;
 
 // crate imports
-use crate::balancer::GateWayState;
+use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
 use crate::config::{Config, BackendConfig, BalancingMode};
@@ -46,9 +47,12 @@ async fn main() {
     let initial_urls: Vec<String> = expand_backends(&config_data.backends, config_data.balancing);
 
     // Shared backend URL list (hot-swappable via config watcher)
+    // NOTE: in Phase 8, each RouteState has its OWN backends lock.
+    // We keep one per route; for a config with no `routes:` block we
+    // synthesise a single catch-all route from the top-level `backends:`.
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
 
-    // Build dashboard — initialize BackendInfo from the loaded config
+    // Build dashboard — must come BEFORE routes so we can clone the Arc into each RouteState.
     let dashboard: SharedDashboard = Arc::new(Mutex::new(DashboardState {
         backends: config_data.backends.iter().map(|b| BackendInfo {
             url: b.url.clone(),
@@ -71,15 +75,35 @@ async fn main() {
         pinned_backend: None,
     }));
 
+    // Build one RouteState per route in config.
+    // If no `routes:` block exists, synthesise a catch-all route from the top-level `backends:`.
+    let routes: Vec<RouteState> = if config_data.routes.is_empty() {
+        vec![RouteState {
+            pattern: "*".to_string(),
+            backends: Arc::clone(&backends_lock),
+            counter: AtomicUsize::new(0),
+            dashboard: Arc::clone(&dashboard),
+        }]
+    } else {
+        config_data.routes.iter().map(|r| {
+            let urls = expand_backends(&r.backends, config_data.balancing);
+            RouteState {
+                pattern: r.match_pattern.clone(),
+                backends: Arc::new(RwLock::new(urls)),
+                counter: AtomicUsize::new(0),
+                dashboard: Arc::clone(&dashboard),
+            }
+        }).collect()
+    };
+
     // Channel for config watcher — carries Vec<BackendConfig> now
     let (tx, mut rx) = mpsc::channel::<Vec<BackendConfig>>(10);
 
     // Shared gateway state (passed into every request handler via Axum State)
     let state = Arc::new(GateWayState {
-        backends: Arc::clone(&backends_lock),
-        counter: AtomicUsize::new(0),
+        routes,
         client: Client::new(),
-        dashboard: Arc::clone(&dashboard),
+        global_dashboard: Arc::clone(&dashboard),
         balancing: config_data.balancing,
     });
 
@@ -92,11 +116,12 @@ async fn main() {
         config_data.circuit_breaker.failure_threshold,
     );
 
-    // Background task: receives new backend lists from the config watcher
-    // and hot-swaps them into BOTH the balancer state AND the dashboard
-    let backends_for_updater = Arc::clone(&state.backends);
+    // Background task: hot-swaps backend lists from the config watcher.
+    // In Phase 8 we only handle the catch-all route (index 0) for hot-reload;
+    // full per-route hot-reload can be wired in a later pass.
+    let backends_for_updater = Arc::clone(&state.routes[0].backends);
     let dashboard_for_updater = Arc::clone(&dashboard);
-    let balancing_mode_for_updater = config_data.balancing; // Capture balancing mode
+    let balancing_mode_for_updater = config_data.balancing;
     tokio::spawn(async move {
         while let Some(new_backends) = rx.recv().await {
             let new_urls: Vec<String> = expand_backends(&new_backends, balancing_mode_for_updater);
