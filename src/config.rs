@@ -3,6 +3,15 @@ use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 
+
+#[derive(serde::Deserialize, Clone)]
+pub struct RouteConfig {
+    #[serde(rename = "match")]
+    pub match_pattern: String, 
+    pub backends: Vec<BackendConfig>,
+    
+}
+
 #[derive(serde::Deserialize, Clone, Copy, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BalancingMode {
@@ -51,6 +60,8 @@ pub struct Config {
     pub auth: Option<AuthConfig>,
     #[serde(default)]
     pub balancing: BalancingMode,
+    #[serde(default)]
+    pub routes: Vec<RouteConfig>,
 }
 
 impl Config {
