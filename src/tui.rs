@@ -233,6 +233,10 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         ));
 
         let content = vec![
+            Line::from(Span::styled(
+                format!("  Route:  {}", backend.route_label),
+                Style::default().fg(Color::Cyan),
+            )),
             weight_line,
             conn_line,
             Line::from(format!("  Hits:   {}", backend.request_count)),
