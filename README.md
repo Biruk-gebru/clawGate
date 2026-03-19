@@ -1,8 +1,8 @@
 # 🦀 ClawGate
 
-A lightweight API gateway built in Rust, featuring round-robin load balancing, middleware layers, hot-reloadable configuration, and a live terminal dashboard.
+A learning-driven API gateway built in Rust — featuring smart routing, circuit breakers, JWT auth, canary deployments, and a live terminal dashboard.
 
-![ClawGate TUI Dashboard](doc/clawgate.png)
+![ClawGate TUI Dashboard](../doc/clawgate2.png)
 
 ---
 
@@ -11,10 +11,17 @@ A lightweight API gateway built in Rust, featuring round-robin load balancing, m
 | Feature | Description |
 |---------|-------------|
 | **Pass-through proxy** | Forwards all incoming HTTP requests to backend servers |
-| **Round-robin load balancing** | Distributes requests evenly across all configured backends |
-| **Middleware stack** | Logging (TraceLayer), authentication, and rate limiting |
-| **Hot-reload config** | Edit `config.yaml` while the gateway is running — backends update instantly, no restart needed |
-| **Live TUI dashboard** | Terminal UI showing per-server hit counts, active request routing, and a scrolling request log |
+| **Multiple load balancing algorithms** | Round-robin, weighted round-robin, least connections, IP-hash sticky sessions |
+| **Path-based routing** | Route `/api/*` to one backend pool and `/static/*` to another |
+| **Header-based routing** | Route on any custom header (`X-Version`, `X-Tenant-ID`, etc.) |
+| **Canary / A-B traffic splitting** | Send X% of traffic to a canary backend, rest to stable — per route |
+| **Active health checks** | Background task pings every backend; unhealthy ones are automatically skipped |
+| **Circuit breaker** | Trips after N consecutive failures, enters HalfOpen probe state, auto-recovers |
+| **JWT authentication** | Validates HS256 tokens — checks `exp`, `iss`, and configured required claims |
+| **Middleware stack** | TraceLayer logging, BufferLayer, global RateLimitLayer, JWT auth |
+| **Hot-reload config** | Edit `config.yaml` while running — backends update instantly, no restart needed |
+| **Live TUI dashboard** | Per-server hit counts, active connections, circuit state, health indicators, request log |
+| **Manual backend control** | `←/→` to select, `d`/`e` to disable/enable, `p`/`u` to pin/unpin via TUI keyboard |
 
 ---
 
@@ -34,25 +41,38 @@ git clone https://github.com/Biruk-gebru/clawGate.git
 cd clawGate/clawgate
 ```
 
-### 2. Configure your backends
+### 2. Configure backends and routes
 
-Edit `config.yaml` to point to your backend servers:
+Edit `config.yaml`:
 
 ```yaml
-backends:
-  - "http://127.0.0.1:4000"
-  - "http://127.0.0.1:4001"
-  - "http://127.0.0.1:4002"
+balancing: round_robin   # round_robin | weighted_round_robin | least_connections | ip_hash
+
+backends:                # used by health checker
+  - url: "http://127.0.0.1:4000"
+  - url: "http://127.0.0.1:4001"
+
+auth:
+  secret: "your-hmac-secret"
+  required_claims: [sub, exp]
+
+routes:
+  - match: "/api/*"
+    label: "api"
+    split:
+      - backends: ["http://127.0.0.1:4000"]
+        weight: 90      # 90% → stable
+      - backends: ["http://127.0.0.1:4001"]
+        weight: 10      # 10% → canary
+  - match: "*"
+    label: "default"
+    backends:
+      - url: "http://127.0.0.1:4002"
 ```
 
-You can add or remove entries here **while the gateway is running** and the change takes effect immediately.
-
-### 3. Start your backend servers
-
-For quick testing, use Python's built-in HTTP server:
+### 3. Start some backends for testing
 
 ```bash
-# In separate terminals:
 python3 -m http.server 4000
 python3 -m http.server 4001
 python3 -m http.server 4002
@@ -64,95 +84,155 @@ python3 -m http.server 4002
 RUST_LOG=info cargo run
 ```
 
-The TUI dashboard launches automatically. The gateway listens on **port 3000**.
+The TUI launches automatically. Gateway listens on **port 3000**.
 
 ### 5. Send requests
 
 ```bash
-curl http://localhost:3000/
-```
+# Hits the /api/* route (90/10 canary split between :4000 and :4001)
+curl -H "Authorization: Bearer <jwt>" http://localhost:3000/api/users
 
-Watch the TUI — the server boxes light up green as each request hits a backend, and the request log updates in real time.
+# Hits the catch-all route → :4002
+curl -H "Authorization: Bearer <jwt>" http://localhost:3000/
+```
 
 ### 6. Quit
 
-Press **`q`** inside the TUI to shut down the gateway.
+Press **`q`** inside the TUI.
 
 ---
 
 ## The TUI Dashboard
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 🦀 ClawGate  |  Backends: 3  |  Total Requests: 42  |  Press 'q' to quit   │
-└─────────────────────────────────────────────────────────────────────────────┘
-┌ 🖥  :4000 ──────────┐┌ 🖥  :4001 ──────────┐┌ 🖥  :4002 ──────────┐
-│  Hits: 14           ││  Hits: 14           ││  Hits: 14           │
-│  ● ACTIVE           ││    idle             ││    idle             │
-└─────────────────────┘└─────────────────────┘└─────────────────────┘
-┌ Recent Requests ────────────────────────────────────────────────────────────┐
-│ Method   Path          Backend                  Status   Time (ms)          │
-│ GET      /             http://127.0.0.1:4000    200      3ms                │
-│ GET      /favicon.ico  http://127.0.0.1:4001    404      2ms                │
-│ GET      /style.css    http://127.0.0.1:4002    200      5ms                │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│ 🦀 ClawGate  |  Backends: 4  |  Total Requests: 37  |  Press 'q' to quit             │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+┌ 🖥  :4000 ────────────┐┌ 🖥  :4001 ──────────────┐┌ 🖥  :4002 ────────────┐
+│  Route:  /api/*      ││  Route:  /api/*          ││  Route:  *            │
+│  Weight: 1           ││  Weight: 1               ││  Weight: 1            │
+│  Active:  2          ││  Active:  0              ││  Active:  0           │
+│  Hits:   33          ││  Hits:   4               ││  Hits:   0            │
+│  🟢 ACTIVE            ││  ⬜ idle                  ││  ⬜ idle               │
+│  checked 1s ago      ││  checked 1s ago          ││  checked 1s ago       │
+└──────────────────────┘└──────────────────────────┘└───────────────────────┘
 ```
 
 | Element | Description |
 |---------|-------------|
-| **Title bar** | Total backend count, total request count, and config reload events |
-| **Server boxes** | One box per backend. Turns **green** for 300ms after a request hits it |
-| **Hits counter** | Cumulative request count per backend since startup |
-| **Recent Requests** | Scrolling log of the last 20 requests — method, path, backend, HTTP status (colour-coded), and response time |
+| **Route:** | Which routing rule owns this backend |
+| **Weight** | Configured traffic weight for weighted round-robin |
+| **Active** | Live active connection count (RAII-tracked) |
+| **Hits** | Cumulative request count since startup |
+| **🟢/🔴/⬜** | Health + activity indicator |
+| **checked Xs ago** | Time since last health check ping |
+
+### TUI Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Move selection between server boxes |
+| `d` | Disable selected backend (⛔ — no more traffic) |
+| `e` | Re-enable selected backend |
+| `p` | Pin all traffic to selected backend (📌) |
+| `u` | Unpin — return to normal load balancing |
+| `q` | Quit ClawGate |
 
 ---
 
-## Hot-Reload Configuration
+## Routing Rules (`config.yaml`)
 
-While ClawGate is running, open `config.yaml` and add or remove backend URLs, then save. The gateway detects the change via `inotify` (Linux) and:
+Routes are evaluated **top-to-bottom, first match wins**. The `"*"` catch-all must always be last.
 
-1. Updates the load balancer's routing list immediately
-2. Adds new server boxes to the TUI dashboard
-3. Removes boxes for deleted backends (hit counts for surviving backends are preserved)
-4. Shows a confirmation message in the TUI title bar
+### Path-based routing
 
 ```yaml
-# Add a new backend while running:
-backends:
-  - "http://127.0.0.1:4000"
-  - "http://127.0.0.1:4001"
-  - "http://127.0.0.1:4002"
-  - "http://127.0.0.1:4003"   # ← new backend appears instantly in the TUI
+routes:
+  - match: "/api/*"        # glob — matches /api/users, /api/orders, etc.
+    backends:
+      - url: "http://127.0.0.1:4000"
+  - match: "/health"       # exact match
+    backends:
+      - url: "http://127.0.0.1:4001"
+  - match: "*"             # catch-all
+    backends:
+      - url: "http://127.0.0.1:4002"
+```
+
+### Header-based routing
+
+```yaml
+routes:
+  - match_header:
+      name: "X-Version"
+      value: "v2"
+    backends:
+      - url: "http://127.0.0.1:4010"
+```
+
+### Canary / A-B split
+
+```yaml
+routes:
+  - match: "/api/*"
+    split:
+      - backends: ["http://127.0.0.1:4000"]
+        weight: 90    # 90% stable
+      - backends: ["http://127.0.0.1:4001"]
+        weight: 10    # 10% canary
 ```
 
 ---
 
-## Middleware
+## Load Balancing Algorithms
 
-The middleware stack runs in this order for every request:
+Set `balancing:` in `config.yaml`:
 
+| Value | Behaviour |
+|-------|-----------|
+| `round_robin` | Default — even distribution across all healthy backends |
+| `weighted_round_robin` | Set `weight: N` per backend — higher weight = more traffic |
+| `least_connections` | Routes each request to the backend with fewest active connections |
+| `ip_hash` | Same client IP always hits the same backend (sticky sessions) |
+
+---
+
+## Health Checks & Circuit Breaker
+
+```yaml
+health_check_interval_secs: 5
+
+circuit_breaker:
+  failure_threshold: 5    # trips after 5 consecutive failures
+  cooldown_secs: 30       # stays tripped for 30s, then enters HalfOpen probe
 ```
-Incoming request
-  → TraceLayer        (logs method, URI, status, latency)
-  → RateLimitLayer    (100 requests/sec global limit, returns 503 when buffer overflows)
-  → BufferLayer       (queues up to 1024 requests to make rate limiter Clone-safe)
-  → require_auth      (checks for Authorization header, returns 401 if missing)
-  → proxy_request     (core proxy + metrics recording)
+
+| Circuit State | Indicator | Behaviour |
+|--------------|-----------|-----------|
+| `Closed` | 🟢 | Normal — traffic flows |
+| `Open` | 🔴 | Tripped — no traffic for `cooldown_secs` |
+| `HalfOpen` | 🟡 | Probe — 1 request sent; success → Closed, fail → Open again |
+
+---
+
+## JWT Authentication
+
+```yaml
+auth:
+  secret: "your-hmac-secret"
+  required_claims:
+    - sub
+    - exp
+  issuer: "your-service"   # optional
 ```
 
-### Enabling Authentication
-
-Authentication is disabled by default for development convenience. To enable it, uncomment this line in `main.rs`:
-
-```rust
-.layer(from_fn(require_auth))
-```
-
-Then all requests must include an `Authorization` header:
+All requests must include a valid HS256 JWT:
 
 ```bash
-curl -H "Authorization: Bearer your-token" http://localhost:3000/
+curl -H "Authorization: Bearer <token>" http://localhost:3000/api/users
 ```
+
+Returns `401` with a JSON error body on missing or invalid tokens.
 
 ---
 
@@ -160,18 +240,20 @@ curl -H "Authorization: Bearer your-token" http://localhost:3000/
 
 ```
 clawgate/
-├── config.yaml              # Backend list — edit this at runtime for hot-reload
+├── config.yaml              # All gateway config — routes, auth, circuit breaker
 ├── Cargo.toml
 └── src/
-    ├── main.rs              # Entry point — wires everything together
-    ├── proxy.rs             # Core request forwarding + metrics recording
-    ├── balancer.rs          # GatewayState, shared state, round-robin selection
-    ├── config.rs            # config.yaml loader + inotify file watcher
-    ├── dashboard.rs          # Shared metrics state (BackendInfo, RequestLog)
+    ├── main.rs              # Entry point — wires all components together
+    ├── proxy.rs             # Request forwarding, route dispatch, canary split, metrics
+    ├── balancer.rs          # RouteState, GatewayState, next_backend() per route
+    ├── router.rs            # matches_path(), match_route() — pure matching logic
+    ├── config.rs            # config.yaml structs + inotify file watcher
+    ├── dashboard.rs         # Shared metrics state (BackendInfo, RequestLog)
+    ├── health.rs            # Background health check task + circuit breaker state machine
     ├── tui.rs               # Ratatui TUI — render loop and all widgets
     └── middleware/
         ├── mod.rs
-        └── auth.rs          # Authorization header check middleware
+        └── auth.rs          # JWT validation middleware
 ```
 
 ---
@@ -188,22 +270,26 @@ clawgate/
                   │         Config Watcher            │
                   │   (std::thread + mpsc sender)     │
                   └─────────────┬────────────────────┘
-                                │ Vec<String> over channel
+                                │ Vec<BackendConfig> over channel
                                 ▼
-┌───────────┐    ┌──────────────────────────────────┐    ┌─────────────────┐
-│  Client   │───▶│          Axum Router              │───▶│  Backend :4000  │
-│ :PORT     │    │  TraceLayer                       │    ├─────────────────┤
-└───────────┘    │  RateLimitLayer                   │───▶│  Backend :4001  │
-                 │  BufferLayer                      │    ├─────────────────┤
-                 │  require_auth (optional)          │───▶│  Backend :4002  │
-                 │  proxy_request ──▶ GatewayState   │    └─────────────────┘
-                 └──────────────────┬───────────────┘
-                                    │ Arc<Mutex<DashboardState>>
-                                    ▼
-                 ┌──────────────────────────────────┐
-                 │         Ratatui TUI               │
-                 │  (main thread, redraws @ 20 FPS)  │
-                 └──────────────────────────────────┘
+┌───────────┐    ┌──────────────────────────────────────────────────┐
+│  Client   │───▶│   Axum Router (port 3000)                        │
+└───────────┘    │   TraceLayer → RateLimitLayer → Auth → proxy_req │
+                 └──────────────┬───────────────────────────────────┘
+                                │ match_route(path, headers)
+                    ┌───────────┼────────────────┐
+                    ▼           ▼                ▼
+              RouteState    RouteState       RouteState
+              /api/* split  /static/*        *
+              :4000 (90%)   :4002            :4003
+              :4001 (10%)
+                    │
+                    │ Arc<Mutex<DashboardState>>
+                    ▼
+       ┌────────────────────────┐
+       │     Ratatui TUI        │
+       │  (main thread, 20 FPS) │
+       └────────────────────────┘
 ```
 
 ---
@@ -222,15 +308,28 @@ clawgate/
 | `ratatui` | Terminal UI framework |
 | `crossterm` | Cross-platform terminal control |
 | `tracing` + `tracing-subscriber` | Structured logging |
+| `jsonwebtoken` | HS256/RS256 JWT validation |
+| `rustc-hash` | Fast FxHasher for IP-hash routing |
+| `rand` | Weighted random selection for canary splits |
 
 ---
 
 ## Phases Built
 
-This project was built incrementally across 5 phases:
-
-1. **Phase 1 — Pass-through Proxy**: Basic Axum server that forwards all requests to a single backend
-2. **Phase 2 — Load Balancing**: Round-robin distribution across multiple backends using `Arc<AtomicUsize>`
-3. **Phase 3 — Middleware Stack**: Logging, rate limiting, and JWT-style auth header validation
-4. **Phase 4 — Dynamic Config**: Hot-reload backends from `config.yaml` using `notify` + `tokio::sync::mpsc`
-5. **Phase 5 — TUI Dashboard**: Live terminal UI with per-server metrics and request log using `ratatui`
+| Phase | Feature |
+|-------|---------|
+| 1 | Pass-through HTTP proxy |
+| 2 | Round-robin load balancing with `AtomicUsize` |
+| 3 | Middleware stack (TraceLayer, BufferLayer, RateLimitLayer, JWT auth) |
+| 4 | Hot-reload backends from `config.yaml` via `notify` + `mpsc` |
+| 5 | Ratatui TUI — live server boxes, request log, hit counters |
+| 6A | Active health checks — background ping, 🟢/🔴 per backend |
+| 6B | Circuit breaker — Closed → Open → HalfOpen state machine |
+| 7A | Weighted round-robin — `weight: N` per backend |
+| 7B | Least connections — `AtomicI64` active connection tracking |
+| 7C | IP hash / sticky sessions — `FxHasher` for client IP |
+| 7D | Manual TUI controls — disable/enable/pin/unpin via keyboard |
+| 9A | Full JWT validation — `jsonwebtoken` crate, exp/iss/claims |
+| 8A | Path-based routing — `routes:` block, glob matching, per-route `RouteState` |
+| 8B | Header-based routing — `match_header:` on any custom header |
+| 8C | Canary / A-B split — weighted random backend group selection per route |
