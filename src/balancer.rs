@@ -4,7 +4,7 @@ use reqwest::Client;
 use std::sync::RwLock;
 
 use crate::dashboard::{SharedDashboard, CircuitState};
-use crate::config::BalancingMode;
+use crate::config::{BalancingMode, RouteConfig};
 
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
@@ -12,8 +12,8 @@ use std::hash::{Hash, Hasher};
 // Each route owns its own backend pool, round-robin counter, and a view into the dashboard
 // so it can check health / circuit state for the backends that belong to it.
 pub struct RouteState {
-    pub pattern: String,
-    pub backends: Arc<RwLock<Vec<String>>>,   // expanded URL list for THIS route
+    pub config: RouteConfig,                   // full route config (pattern + header match rules)
+    pub backends: Arc<RwLock<Vec<String>>>,    // expanded URL list for THIS route
     pub counter: AtomicUsize,                  // independent round-robin counter per route
     pub dashboard: SharedDashboard,            // shared with health checker & proxy for metrics
 }
