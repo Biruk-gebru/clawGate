@@ -9,13 +9,19 @@ use crate::config::BalancingMode;
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 
+pub struct RouteState {
+    pub pattern: String, 
+    pub backends: Arc<RwLock<Vec<String>>>,
+    pub counter: AtomicUsize,
+    pub dashboard: SharedRouteGroup, 
+}
+
 pub type SharedState = Arc<GateWayState>;
 //A struct to hold the state of the gateway
 pub struct GateWayState {
-    pub backends: Arc<RwLock<Vec<String>>>,
-    pub counter: AtomicUsize,//to avoid data race
+    pub routes: Vec<RouteState>,
     pub client: Client,//to have a single client at start up for all connections 
-    pub dashboard: SharedDashboard,//contain the logs
+    pub global_dashboard: SharedDashboard,//contain the logs
     pub balancing: BalancingMode,
 }
 
