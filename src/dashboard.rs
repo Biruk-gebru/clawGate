@@ -23,7 +23,7 @@ impl PartialEq for CircuitState {
 
 pub struct BackendInfo {
     pub url: String,
-    pub weight: u32,             // configured traffic weight (1 = default / equal share)
+    pub weight: u32,
     pub request_count: u64,
     pub last_hit: Option<Instant>,
     pub health_path: String,
@@ -33,6 +33,7 @@ pub struct BackendInfo {
     pub circuit_state: CircuitState,
     pub manually_disabled: bool,
     pub active_connections: Arc<AtomicI64>,
+    pub route_label: String,   // which route owns this backend — shown in TUI box
 }
 
 pub struct RequestLog {
