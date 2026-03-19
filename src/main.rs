@@ -12,7 +12,7 @@ mod router;
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
 use crate::middleware::auth::require_auth;
-use crate::config::{Config, BackendConfig, BalancingMode};
+use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 
 // dependency imports
@@ -78,8 +78,13 @@ async fn main() {
     // Build one RouteState per route in config.
     // If no `routes:` block exists, synthesise a catch-all route from the top-level `backends:`.
     let routes: Vec<RouteState> = if config_data.routes.is_empty() {
+        // Backward-compat: no routes block → single catch-all using top-level backends
         vec![RouteState {
-            pattern: "*".to_string(),
+            config: RouteConfig {
+                match_pattern: Some("*".to_string()),
+                backends: config_data.backends.clone(),
+                match_header: None,
+            },
             backends: Arc::clone(&backends_lock),
             counter: AtomicUsize::new(0),
             dashboard: Arc::clone(&dashboard),
@@ -88,7 +93,7 @@ async fn main() {
         config_data.routes.iter().map(|r| {
             let urls = expand_backends(&r.backends, config_data.balancing);
             RouteState {
-                pattern: r.match_pattern.clone(),
+                config: r.clone(),
                 backends: Arc::new(RwLock::new(urls)),
                 counter: AtomicUsize::new(0),
                 dashboard: Arc::clone(&dashboard),

@@ -23,15 +23,16 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let (parts, body) = request.into_parts();
     let method = parts.method;
     let uri = parts.uri;
+    let headers = parts.headers;  // must be extracted BEFORE the route match that reads it
     let path = uri.path();
-    let route_state = state.routes.iter().find(|r| crate::router::matches_path(&r.pattern, path));
+
+    let route_state = state.routes.iter().find(|r| crate::router::match_route(&r.config, path, &headers));
 
     let route = match route_state {
         Some(r) => r,
         None => return (StatusCode::NOT_FOUND, "No route matched").into_response(),
     };
 
-    let headers = parts.headers;
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
