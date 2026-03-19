@@ -27,14 +27,19 @@ backends:
 # "*" catch-all MUST be last.
 routes:
   - match: "/api/*"
-    backends:
-      - url: "http://127.0.0.1:4000"
-      - url: "http://127.0.0.1:4001"
+    label: "api"
+    split:
+      - backends: ["http://127.0.0.1:4000"]
+        weight: 90    # 90% → stable
+      - backends: ["http://127.0.0.1:4001"]
+        weight: 10    # 10% → canary
 
   - match: "/static/*"
+    label: "static"
     backends:
       - url: "http://127.0.0.1:4002"
 
-  - match: "*"           # catch-all — handles everything not matched above
+  - match: "*"
+    label: "default"
     backends:
       - url: "http://127.0.0.1:4003"
