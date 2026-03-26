@@ -31,13 +31,13 @@ routes:
     split:
       - backends: ["http://127.0.0.1:4000"]
         weight: 90    # 90% → stable
-      - backends: ["http://127.0.0.1:4001"]
+      - backends: ["http://127.0.0.1:4002"]
         weight: 10    # 10% → canary
 
   - match: "/static/*"
     label: "static"
     backends:
-      - url: "http://127.0.0.1:4002"
+      - url: "http://127.0.0.1:4001"
 
   - match: "*"
     label: "default"

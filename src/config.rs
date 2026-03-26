@@ -3,6 +3,19 @@ use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 
+#[derive(serde::Deserialize,Clone, PartialEq)]
+#[serder(rename_all = "snake_case")]
+pub enum IpRulesMode {
+    Allowlist,
+    Denylist,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct IpRulesConfig {
+    pub mode: IpRulesMode,
+    pub cidrs: Vec<String>,
+}
+
 #[derive(serde::Deserialize, Clone)]
 pub struct SplitGroupConfig {
     pub backends: Vec<String>,
