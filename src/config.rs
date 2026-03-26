@@ -4,7 +4,7 @@ use notify::Watcher;
 use std::path::Path;
 
 #[derive(serde::Deserialize,Clone, PartialEq)]
-#[serder(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum IpRulesMode {
     Allowlist,
     Denylist,
@@ -89,6 +89,7 @@ pub struct Config {
     pub balancing: BalancingMode,
     #[serde(default)]
     pub routes: Vec<RouteConfig>,
+    pub ip_rules: Option<IpRulesConfig>,
 }
 
 impl Config {
