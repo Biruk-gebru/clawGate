@@ -11,6 +11,7 @@ mod router;
 // crate imports
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
+use crate::middleware::ip_rules::{ip_filter, IpRules};
 use crate::middleware::auth::require_auth;
 use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
@@ -22,6 +23,7 @@ use axum::error_handling::HandleErrorLayer;
 use reqwest::Client;
 use reqwest::StatusCode;
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI64, AtomicUsize};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
@@ -51,6 +53,9 @@ async fn main() {
     // We keep one per route; for a config with no `routes:` block we
     // synthesise a single catch-all route from the top-level `backends:`.
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
+    // Build IpRules from config (pre-parse CIDRs at startup, not per-request).
+    // ip_rules is Option<IpRulesConfig>; we map over it so the Arc holds Option<IpRules>.
+    let ip_rules_arc = Arc::new(config_data.ip_rules.as_ref().map(IpRules::from_config));
 
     // Build dashboard — must come BEFORE routes so we can clone the Arc into each RouteState.
     // For each backend, find which route it belongs to so we can display the label in the TUI.
@@ -193,6 +198,9 @@ async fn main() {
         .fallback(proxy_request)
         .with_state(state)
         .layer(from_fn(move |req, next| {
+            ip_filter(req, next, Arc::clone(&ip_rules_arc))
+        }))
+        .layer(from_fn(move |req, next| {
             require_auth(req, next, Arc::clone(&auth_cfg))
         })) // re-enable for production
         .layer(ServiceBuilder::new()
@@ -205,7 +213,7 @@ async fn main() {
 
     // Axum runs as a background task so the TUI can own the main thread
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
     });
 
     // TUI runs on the main thread and blocks here until the user presses 'q'
