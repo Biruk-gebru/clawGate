@@ -47,6 +47,8 @@ async fn main() {
     let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
     let auth_cfg = Arc::new(config_data.auth.clone());
 
+    let max_body_bytes = config_data.max_body_size_mb.map(|mb| (mb * 1024 * 1024) as usize);
+
     // Weighted round-robin URLs
     let initial_urls: Vec<String> = expand_backends(&config_data.backends, config_data.balancing);
 
@@ -136,6 +138,7 @@ async fn main() {
         global_dashboard: Arc::clone(&dashboard),
         balancing: config_data.balancing,
         rate_limiter: rate_limiter.clone(),
+        max_body_bytes,
     });
 
     // Start the health checker AFTER state is created so we can clone state.client
