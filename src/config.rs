@@ -70,6 +70,13 @@ pub struct CircuitBreakerConfig {
     pub cooldown: u64,
 }
 
+#[derive(serde::Deserialize, Clone)]
+pub struct RateLimitConfig {
+    pub requests: u64,
+    pub window_secs: u64,
+    pub per: String,
+}
+
 impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         CircuitBreakerConfig { failure_threshold: 5, cooldown: 30 }
@@ -90,6 +97,7 @@ pub struct Config {
     #[serde(default)]
     pub routes: Vec<RouteConfig>,
     pub ip_rules: Option<IpRulesConfig>,
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 impl Config {
