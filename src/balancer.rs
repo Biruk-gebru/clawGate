@@ -5,6 +5,7 @@ use std::sync::RwLock;
 
 use crate::dashboard::{SharedDashboard, CircuitState};
 use crate::config::{BalancingMode, RouteConfig};
+use crate::rate_limiter::RateLimiter;
 
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
@@ -83,11 +84,10 @@ impl RouteState {
 
 pub type SharedState = Arc<GateWayState>;
 
-// GateWayState is now just the router — it holds all route pools and the shared HTTP client.
-// It no longer owns a single backend list or counter; those live inside each RouteState.
 pub struct GateWayState {
     pub routes: Vec<RouteState>,
     pub client: Client,
-    pub global_dashboard: SharedDashboard, // for TUI totals / recent request log
+    pub global_dashboard: SharedDashboard,
     pub balancing: BalancingMode,
+    pub rate_limiter: Option<Arc<RateLimiter>>,
 }
