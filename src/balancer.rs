@@ -90,4 +90,5 @@ pub struct GateWayState {
     pub global_dashboard: SharedDashboard,
     pub balancing: BalancingMode,
     pub rate_limiter: Option<Arc<RateLimiter>>,
+    pub max_body_bytes: Option<usize>,
 }
