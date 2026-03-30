@@ -35,7 +35,22 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         None => return (StatusCode::NOT_FOUND, "No route matched").into_response(),
     };
 
-    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+    if let Some(max) = state.max_body_bytes {
+        if let Some(cl) = headers.get(axum::http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            if cl > max {
+                return (StatusCode::PAYLOAD_TOO_LARGE, "Body too large").into_response();
+            }
+        }
+    }
+
+    let limit = state.max_body_bytes.unwrap_or(usize::MAX);
+    let bytes = match axum::body::to_bytes(body, limit).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "Body too large").into_response(),
+    };
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
     // 9C — per-IP rate limit. Fails open if client_ip isn't a parseable IpAddr.
