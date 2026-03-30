@@ -98,6 +98,7 @@ pub struct Config {
     pub routes: Vec<RouteConfig>,
     pub ip_rules: Option<IpRulesConfig>,
     pub rate_limit: Option<RateLimitConfig>,
+    pub max_body_size_mb: Option<u64>,
 }
 
 impl Config {
