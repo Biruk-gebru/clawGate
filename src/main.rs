@@ -7,6 +7,7 @@ mod dashboard;
 mod tui;
 mod health;
 mod router;
+mod rate_limiter;
 
 // crate imports
 use crate::balancer::{GateWayState, RouteState};
@@ -15,6 +16,7 @@ use crate::middleware::ip_rules::{ip_filter, IpRules};
 use crate::middleware::auth::require_auth;
 use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
+use crate::rate_limiter::RateLimiter;
 
 // dependency imports
 use axum::Router;
@@ -122,12 +124,18 @@ async fn main() {
     // Channel for config watcher — carries Vec<BackendConfig> now
     let (tx, mut rx) = mpsc::channel::<Vec<BackendConfig>>(10);
 
+    // 9C — build per-IP limiter from config; None if block absent or per != "ip"
+    let rate_limiter: Option<Arc<RateLimiter>> = config_data.rate_limit.as_ref()
+        .filter(|rl| rl.per == "ip")
+        .map(|rl| Arc::new(RateLimiter::new(rl.requests, rl.window_secs)));
+
     // Shared gateway state (passed into every request handler via Axum State)
     let state = Arc::new(GateWayState {
         routes,
         client: Client::new(),
         global_dashboard: Arc::clone(&dashboard),
         balancing: config_data.balancing,
+        rate_limiter: rate_limiter.clone(),
     });
 
     // Start the health checker AFTER state is created so we can clone state.client
@@ -138,6 +146,16 @@ async fn main() {
         config_data.circuit_breaker.cooldown,
         config_data.circuit_breaker.failure_threshold,
     );
+
+    // 9C — purge stale IP entries every 60s
+    if let Some(limiter_arc) = rate_limiter {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                limiter_arc.evict_stale();
+            }
+        });
+    }
 
     // Background task: hot-swaps backend lists from the config watcher.
     // In Phase 8 we only handle the catch-all route (index 0) for hot-reload;
