@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 use rand::RngExt;
 
-
 use crate::balancer::SharedState;
 use crate::dashboard::RequestLog;
 
@@ -38,6 +37,15 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
 
     let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
+
+    // 9C — per-IP rate limit. Fails open if client_ip isn't a parseable IpAddr.
+    if let Some(limiter) = &state.rate_limiter {
+        if let Ok(ip_addr) = client_ip.parse::<std::net::IpAddr>() {
+            if !limiter.check_and_record(ip_addr) {
+                return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+            }
+        }
+    }
 
     // 8C — Canary / A-B split: if the matched route has a split config, use weighted random
     // selection to choose a backend group, then pick a URL from that group.
