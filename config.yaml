@@ -43,3 +43,8 @@ routes:
     label: "default"
     backends:
       - url: "http://127.0.0.1:4003"
+
+rate_limit:
+  requests: 100
+  window_secs: 1
+  per: ip 
