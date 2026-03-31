@@ -17,6 +17,7 @@ use crate::middleware::auth::require_auth;
 use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 use crate::rate_limiter::RateLimiter;
+use crate::middleware::request_id::check_and_inject_request_id;
 
 // dependency imports
 use axum::Router;
@@ -222,6 +223,9 @@ async fn main() {
     let app = Router::new()
         .fallback(proxy_request)
         .with_state(state)
+        .layer(from_fn(move |req, next| {
+            check_and_inject_request_id(req, next)
+        }))
         .layer(from_fn(move |req, next| {
             ip_filter(req, next, Arc::clone(&ip_rules_arc))
         }))
