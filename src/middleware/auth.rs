@@ -13,28 +13,24 @@ pub async fn require_auth(
     next: Next,
     auth_cfg: Arc<Option<AuthConfig>>,
 ) -> impl IntoResponse {
-    // No auth config in config.yaml — gateway is open, pass straight through
+    // No auth configured, pass through
     let Some(auth) = auth_cfg.as_ref() else {
         return next.run(request).await;
     };
 
-    // Must have an Authorization header
     let Some(header) = request.headers().get("Authorization") else {
         return (StatusCode::UNAUTHORIZED, "Missing Authorization header").into_response();
     };
 
-    // Header value must be valid UTF-8
     let token_str = match header.to_str() {
         Ok(s) => s,
         Err(_) => return (StatusCode::BAD_REQUEST, "Malformed Authorization header").into_response(),
     };
 
-    // Must follow "Bearer <token>" format
     let Some(token) = token_str.strip_prefix("Bearer ") else {
         return (StatusCode::UNAUTHORIZED, "Authorization must be 'Bearer <token>'").into_response();
     };
 
-    // Validate signature + expiry
     let key = DecodingKey::from_secret(auth.secret.as_bytes());
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
@@ -47,7 +43,6 @@ pub async fn require_auth(
         Err(e) => return (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)).into_response(),
     };
 
-    // Check required claims are present
     if let Some(required) = &auth.required_claims {
         for claim in required {
             if !token_data.claims.contains_key(claim) {

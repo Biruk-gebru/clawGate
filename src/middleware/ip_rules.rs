@@ -47,7 +47,7 @@ pub async fn ip_filter(request: Request, next: Next, rules: Arc<Option<IpRules>>
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
-        .and_then(|s| s.trim().parse().ok()); //chore this assumes that the proxy was to be trusted harder mesares need to be implimened
+        .and_then(|s| s.trim().parse().ok());
         
     let socket_ip: Option<IpAddr> = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
 

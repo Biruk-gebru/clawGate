@@ -12,8 +12,7 @@ impl RateBucket {
         RateBucket { timestamps: VecDeque::new() }
     }
 
-    /// Returns true and records the request if under the limit, false if at/over it.
-    /// Prunes timestamps older than `window_secs` before checking.
+    /// Returns true if under the limit (and records the request), false otherwise.
     pub fn is_allowed(&mut self, limit: u64, window_secs: u64) -> bool {
         let now = Instant::now();
         let window = Duration::from_secs(window_secs);
@@ -37,8 +36,7 @@ impl RateBucket {
     }
 }
 
-/// Concurrent per-IP rate limiter. DashMap shards internally so async tasks
-/// rarely contend. Never hold a RefMut across an .await point.
+/// Concurrent per-IP rate limiter backed by DashMap.
 pub struct RateLimiter {
     pub map: DashMap<IpAddr, RateBucket>,
     pub limit: u64,

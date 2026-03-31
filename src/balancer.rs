@@ -10,23 +10,19 @@ use crate::rate_limiter::RateLimiter;
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 
-// Each route owns its own backend pool, round-robin counter, and a view into the dashboard
-// so it can check health / circuit state for the backends that belong to it.
 pub struct RouteState {
-    pub config: RouteConfig,                   // full route config (pattern + header match rules)
-    pub backends: Arc<RwLock<Vec<String>>>,    // expanded URL list for THIS route
-    pub counter: AtomicUsize,                  // independent round-robin counter per route
-    pub dashboard: SharedDashboard,            // shared with health checker & proxy for metrics
+    pub config: RouteConfig,
+    pub backends: Arc<RwLock<Vec<String>>>,
+    pub counter: AtomicUsize,
+    pub dashboard: SharedDashboard,
 }
 
 impl RouteState {
-    // Pick the next healthy backend from this route's pool.
-    // Mirrors the old GateWayState::next_backend, but scoped to one route.
+    /// Pick the next healthy backend from this route's pool.
     pub fn next_backend(&self, client_ip: &str, balancing: BalancingMode) -> Option<String> {
         let backends = self.backends.read().unwrap();
         let dash = self.dashboard.lock().unwrap();
 
-        // Filter: eligible = not manually disabled AND circuit not Open
         let healthy_backends: Vec<&String> = backends.iter().filter(|url| {
             dash.backends.iter()
                 .find(|b| &b.url == *url)
@@ -37,14 +33,13 @@ impl RouteState {
                         CircuitState::HalfOpen => true,
                     }
                 })
-                .unwrap_or(true)  // unknown backend = allow (health checker will catch it)
+                .unwrap_or(true)
         }).collect();
 
         if healthy_backends.is_empty() {
             return None;
         }
 
-        // Pin: if a backend is pinned, send all traffic there directly.
         if let Some(pin_idx) = dash.pinned_backend {
             if let Some(b) = dash.backends.get(pin_idx) {
                 let eligible = !b.manually_disabled
@@ -52,7 +47,7 @@ impl RouteState {
                 if eligible {
                     return Some(b.url.clone());
                 }
-                // Pinned backend is down — fall through to normal balancing
+                // Pinned backend is down, fall through to normal balancing
             }
         }
 

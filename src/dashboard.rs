@@ -33,7 +33,7 @@ pub struct BackendInfo {
     pub circuit_state: CircuitState,
     pub manually_disabled: bool,
     pub active_connections: Arc<AtomicI64>,
-    pub route_label: String,   // which route owns this backend — shown in TUI box
+    pub route_label: String,
 }
 
 pub struct RequestLog {
@@ -49,7 +49,7 @@ pub struct DashboardState {
     pub backends: Vec<BackendInfo>,
     pub recent_request: VecDeque<RequestLog>,
     pub total_request: u64,
-    pub status_msg: String, // shown in the TUI title — replaces println!
+    pub status_msg: String,
     pub health_check_interval_secs: u64,
     pub selected_backend: usize,
     pub pinned_backend: Option<usize>,

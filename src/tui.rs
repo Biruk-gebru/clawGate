@@ -18,21 +18,16 @@ use ratatui::{
 use std::sync::atomic::Ordering;
 use crate::dashboard::SharedDashboard;
 
-/// Entry point — call this from main() after spawning the axum server.
 /// Blocks until the user presses 'q'.
 pub fn run_tui(dashboard: SharedDashboard) -> io::Result<()> {
-    // Set up terminal: switch to alternate screen (hides normal shell output)
-    // and enable raw mode (keypresses go directly to us, not line-buffered)
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;
 
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    // Run the loop — cleanup happens whether we return Ok or Err
     let result = event_loop(&mut terminal, dashboard);
 
-    // Always restore the terminal, even if the loop errored
     disable_raw_mode()?;
     io::stdout().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -91,7 +86,7 @@ fn event_loop(
                     }
                     KeyCode::Char('u') => {
                         dash.pinned_backend = None;
-                        dash.status_msg = "unpinned — back to round-robin".to_string();
+                        dash.status_msg = "unpinned - back to round-robin".to_string();
                     }
                     _ => {}
                 }
@@ -101,15 +96,11 @@ fn event_loop(
 }
 
 fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
-    // Lock the dashboard to take a snapshot of the data for this frame
-    // The lock is released at the end of this function
     let dash = dashboard.lock().unwrap();
 
     let area = frame.area();
 
-    // ── Server boxes — grouped by route label ──────────────────────────────
-    // Step 1: collect groups preserving config order (first-seen label wins order).
-    // Each group is (label, Vec<(global_index, &BackendInfo)>).
+    // Group backends by route label
     let mut groups: Vec<(String, Vec<(usize, &_)>)> = Vec::new();
     for (i, b) in dash.backends.iter().enumerate() {
         if let Some(group) = groups.iter_mut().find(|(lbl, _)| lbl == &b.route_label) {
@@ -119,18 +110,17 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         }
     }
 
-    // Step 2: build vertical constraints — each group needs 1 (header) + 9 (boxes) = 10 rows.
-    // Whatever remains goes to the request log.
+    // Layout: each group needs 1 (header) + 9 (boxes) rows, rest goes to request log
     let num_groups = groups.len().max(1);
     let mut vert_constraints: Vec<Constraint> = vec![
-        Constraint::Length(3),                            // title bar
+        Constraint::Length(3),
     ];
     for _ in 0..num_groups {
-        vert_constraints.push(Constraint::Length(1));     // route header label
-        vert_constraints.push(Constraint::Length(9));     // backend box row
+        vert_constraints.push(Constraint::Length(1));
+        vert_constraints.push(Constraint::Length(9));
     }
-    vert_constraints.push(Constraint::Min(5));            // request log
-    vert_constraints.push(Constraint::Length(1));         // footer
+    vert_constraints.push(Constraint::Min(5));
+    vert_constraints.push(Constraint::Length(1));
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -138,11 +128,9 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .split(area);
 
     let title_area = sections[0];
-    // groups occupy sections[1..1+num_groups*2], two slots each
     let log_area   = sections[1 + num_groups * 2];
     let hint_area  = sections[2 + num_groups * 2];
 
-    // ── Title bar ──────────────────────────────────────────────────────────
     let title_text = if dash.status_msg.is_empty() {
         format!(
             " 🦀 ClawGate  |  Backends: {}  |  Total Requests: {}  |  Press 'q' to quit ",
@@ -165,12 +153,10 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
     let selected = dash.selected_backend;
     let pinned   = dash.pinned_backend;
 
-    // Step 3: render each group
     for (group_idx, (route_label, members)) in groups.iter().enumerate() {
         let header_area = sections[1 + group_idx * 2];
         let boxes_area  = sections[2 + group_idx * 2];
 
-        // ── Route group header ─────────────────────────────────────────────
         let header_text = format!(" 🗂  {} ({} backend{}) ",
             route_label,
             members.len(),
@@ -180,7 +166,6 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
             .style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD));
         frame.render_widget(group_header, header_area);
 
-        // ── Backend boxes in this group ────────────────────────────────────
         let n = members.len().max(1);
         let columns = Layout::default()
             .direction(Direction::Horizontal)
@@ -265,7 +250,6 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         }
     }
 
-    // ── Request log ────────────────────────────────────────────────────────
     let header_cells = ["Method", "Path", "Backend", "Status", "Time (ms)"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
@@ -275,7 +259,6 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         .recent_request
         .iter()
         .map(|log| {
-            // Colour the status code: 2xx green, 4xx yellow, 5xx red
             let status_color = match log.status {
                 200..=299 => Color::Green,
                 400..=499 => Color::Yellow,
@@ -296,11 +279,11 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
     let log_table = Table::new(
         rows,
         [
-            Constraint::Length(8),    // Method
-            Constraint::Min(20),      // Path  (stretches)
-            Constraint::Length(22),   // Backend URL
-            Constraint::Length(7),    // Status
-            Constraint::Length(10),   // Time
+            Constraint::Length(8),
+            Constraint::Min(20),
+            Constraint::Length(22),
+            Constraint::Length(7),
+            Constraint::Length(10),
         ],
     )
     .header(header)
@@ -313,7 +296,6 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
 
     frame.render_widget(log_table, log_area);
 
-    // ── Key hint footer ────────────────────────────────────────────────────
     let hint = Paragraph::new(" ← → move  |  d disable  |  e enable  |  p pin  |  u unpin  |  q quit")
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(hint, hint_area);

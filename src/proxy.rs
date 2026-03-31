@@ -28,7 +28,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let (parts, body) = request.into_parts();
     let method = parts.method;
     let uri = parts.uri;
-    let headers = parts.headers;  // must be extracted BEFORE the route match that reads it
+    let headers = parts.headers;
     let path = uri.path();
     let request_id = headers.get("X-Request-ID").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
 
@@ -57,7 +57,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     };
     let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
 
-    // 9C — per-IP rate limit. Fails open if client_ip isn't a parseable IpAddr.
+    // Per-IP rate limit (fails open if client_ip isn't parseable)
     if let Some(limiter) = &state.rate_limiter {
         if let Ok(ip_addr) = client_ip.parse::<std::net::IpAddr>() {
             if !limiter.check_and_record(ip_addr) {
@@ -66,9 +66,8 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         }
     }
 
-    // 8C — Canary / A-B split: if the matched route has a split config, use weighted random
-    // selection to choose a backend group, then pick a URL from that group.
-    // Otherwise fall back to the route's standard next_backend() selection.
+    // Traffic splitting: weighted random group selection if split is configured,
+    // otherwise standard load balancing.
     let available_backend: String = if let Some(split_groups) = &route.config.split {
         let total_weight: u32 = split_groups.iter().map(|g| g.weight).sum();
         assert!(total_weight > 0, "Split weights must sum to a positive number");
@@ -78,24 +77,21 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         let chosen_group = split_groups.iter().find(|g| {
             cumulative += g.weight;
             roll < cumulative
-        }).expect("cumulative weight must cover roll — check split config");
+        }).expect("cumulative weight must cover roll");
 
-        // Pick round-robin within the chosen group's URL list.
-        // Simple: use the route's shared counter mod group size.
+        // Round-robin within the chosen group
         let idx = route.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             % chosen_group.backends.len();
         chosen_group.backends[idx].clone()
     } else {
-        // No split — use normal balancing (round-robin / least-conn / ip-hash)
+        // No split config, use normal balancing
         match route.next_backend(client_ip, state.balancing) {
             Some(b) => b,
             None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
         }
     };
 
-
-    // Increment active connections for the chosen backend and clone the Arc for the RAII guard.
-    // The guard automatically decrements when proxy_request returns (any path — Ok or Err).
+    // Increment active connections; RAII guard decrements on return.
     let conn_arc: Option<Arc<AtomicI64>> = {
         let mut dash = state.global_dashboard.lock().unwrap();
         dash.backends.iter_mut()
@@ -107,10 +103,9 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     };
     let backend_label = available_backend.clone();
     gauge!("active_connections", "backend" => backend_label).set(conn_arc.as_ref().map_or(0, |a| a.load(Ordering::Relaxed)) as f64);
-    // Hold the guard for the lifetime of the request — Drop decrements the counter.
     let _guard = conn_arc.map(|arc| ConnectionGuard(arc, available_backend.clone()));
 
-    // Save string versions BEFORE method/uri are moved into the reqwest call below
+    // Save copies before method/uri are moved into the reqwest call
     let method_str = method.to_string();
     let path_str = uri.to_string();
 
@@ -134,7 +129,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     counter!("request_count", "backend" => available_backend.clone(), "status" => status.to_string()).increment(1);
     histogram!("request_duration", "backend" => available_backend.clone(), "status" => status.to_string()).record(duration as f64);
 
-    // Record metrics — scoped block so the lock drops before the .await below
+    // Record to dashboard (scoped so the lock drops before the .await)
     {
         let mut dash = state.global_dashboard.lock().unwrap();
 

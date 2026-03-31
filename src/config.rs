@@ -109,7 +109,7 @@ impl Config {
     }
 
     pub fn start_watcher(path: &str, sender: mpsc::Sender<Vec<BackendConfig>>) {
-        let path = path.to_string(); // path is a &str — just convert directly, no .url
+        let path = path.to_string();
         let path_clone = path.clone();
 
         std::thread::spawn(move || {
@@ -119,12 +119,11 @@ impl Config {
                 match result {
                     Ok(event) => {
                         if let notify::EventKind::Modify(_) = event.kind {
-                            std::thread::sleep(std::time::Duration::from_millis(100));//to avoid write race
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                             let content = match fs::read_to_string(&path_clone) {
                                 Ok(c) => c,
                                 Err(e) => { eprintln!("Failed to read config: {}", e); return; }
                             };
-                            // Graceful parse — bad YAML just skips the update
                             let config: Config = match serde_yaml::from_str(&content) {
                                 Ok(c) => c,
                                 Err(e) => { eprintln!("Failed to parse config: {}", e); return; }
