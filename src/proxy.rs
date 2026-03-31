@@ -30,6 +30,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let uri = parts.uri;
     let headers = parts.headers;  // must be extracted BEFORE the route match that reads it
     let path = uri.path();
+    let request_id = headers.get("X-Request-ID").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
 
     let route_state = state.routes.iter().find(|r| crate::router::match_route(&r.config, path, &headers));
 
@@ -149,6 +150,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
             backends: available_backend,
             status: status.as_u16(),
             duration_ms: duration,
+            request_id: request_id,
         });
 
         if dash.recent_request.len() > 20 {
