@@ -8,13 +8,16 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 use rand::RngExt;
 
+use metrics::{gauge, counter, histogram};
+
 use crate::balancer::SharedState;
 use crate::dashboard::RequestLog;
 
-struct ConnectionGuard(Arc<AtomicI64>);
+struct ConnectionGuard(Arc<AtomicI64>, String);
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::Relaxed);
+        gauge!("active_connections", "backend" => self.1.clone()).set(self.0.load(Ordering::Relaxed) as f64);
     }
 }
 
@@ -101,8 +104,10 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
                 Arc::clone(&info.active_connections)
             })
     };
+    let backend_label = available_backend.clone();
+    gauge!("active_connections", "backend" => backend_label).set(conn_arc.as_ref().map_or(0, |a| a.load(Ordering::Relaxed)) as f64);
     // Hold the guard for the lifetime of the request — Drop decrements the counter.
-    let _guard = conn_arc.map(ConnectionGuard);
+    let _guard = conn_arc.map(|arc| ConnectionGuard(arc, available_backend.clone()));
 
     // Save string versions BEFORE method/uri are moved into the reqwest call below
     let method_str = method.to_string();
@@ -124,6 +129,9 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
 
     let duration = start_time.elapsed().as_millis();
     let status = response.status();
+
+    counter!("request_count", "backend" => available_backend.clone(), "status" => status.to_string()).increment(1);
+    histogram!("request_duration", "backend" => available_backend.clone(), "status" => status.to_string()).record(duration as f64);
 
     // Record metrics — scoped block so the lock drops before the .await below
     {
