@@ -20,6 +20,7 @@ use crate::rate_limiter::RateLimiter;
 
 // dependency imports
 use axum::Router;
+use axum::routing::get;
 use axum::middleware::from_fn;
 use axum::error_handling::HandleErrorLayer;
 use reqwest::Client;
@@ -60,6 +61,9 @@ async fn main() {
     // Build IpRules from config (pre-parse CIDRs at startup, not per-request).
     // ip_rules is Option<IpRulesConfig>; we map over it so the Arc holds Option<IpRules>.
     let ip_rules_arc = Arc::new(config_data.ip_rules.as_ref().map(IpRules::from_config));
+
+    // Build prometheus metrics
+    let _recorder = metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder();
 
     // Build dashboard — must come BEFORE routes so we can clone the Arc into each RouteState.
     // For each backend, find which route it belongs to so we can display the label in the TUI.
@@ -230,6 +234,12 @@ async fn main() {
             .layer(RateLimitLayer::new(100, Duration::from_secs(1))))//chore:: make this global rate limiting specific to an ip)
         .layer(TraceLayer::new_for_http());
 
+    let metrics_app = Router::new()
+        .route("/metrics", get(|| async { "Metrics" }));
+    let metrics_listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await.unwrap();
+    tokio::spawn(async move {
+        axum::serve(metrics_listener, metrics_app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    });
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
     // Axum runs as a background task so the TUI can own the main thread
