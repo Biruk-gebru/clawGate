@@ -42,6 +42,7 @@ pub struct RequestLog {
     pub backends: String,
     pub status: u16,
     pub duration_ms: u128,
+    pub request_id: String,
 }
 
 pub struct DashboardState {
