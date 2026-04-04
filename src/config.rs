@@ -3,6 +3,24 @@ use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 
+#[derive(serde::Serialize)]
+pub struct LogRecord {
+    pub timestamp: String,   // ISO-8601 string, formatted before sending
+    pub request_id: String,
+    pub method: String,
+    pub path: String,
+    pub backend: String,
+    pub status: u16,
+    pub duration_ms: u128,   // matches elapsed().as_millis()
+    pub client_ip: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct AccessLogConfig {
+    pub path: String,
+    pub enabled: bool,
+}
+
 #[derive(serde::Deserialize,Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum IpRulesMode {
@@ -99,6 +117,7 @@ pub struct Config {
     pub ip_rules: Option<IpRulesConfig>,
     pub rate_limit: Option<RateLimitConfig>,
     pub max_body_size_mb: Option<u64>,
+    pub access_log: Option<AccessLogConfig>,
 }
 
 impl Config {
