@@ -2,10 +2,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use reqwest::Client;
 use std::sync::RwLock;
+use tokio::sync::mpsc;
 
 use crate::dashboard::{SharedDashboard, CircuitState};
 use crate::config::{BalancingMode, RouteConfig};
 use crate::rate_limiter::RateLimiter;
+use crate::config::LogRecord;
 
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
@@ -86,4 +88,5 @@ pub struct GateWayState {
     pub balancing: BalancingMode,
     pub rate_limiter: Option<Arc<RateLimiter>>,
     pub max_body_bytes: Option<usize>,
+    pub log_tx : Option<mpsc::Sender<LogRecord>>,
 }
