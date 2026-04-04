@@ -7,6 +7,7 @@ mod tui;
 mod health;
 mod router;
 mod rate_limiter;
+mod admin;
 
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
@@ -16,6 +17,7 @@ use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig, LogRecord
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 use crate::rate_limiter::RateLimiter;
 use crate::middleware::request_id::check_and_inject_request_id;
+use crate::admin::{AdminState, admin_router};
 use axum::Router;
 use axum::routing::get;
 use axum::middleware::from_fn;
@@ -218,6 +220,20 @@ async fn main() {
             }
         }
     });
+
+    if let Some(ref admin_cfg) = config_data.admin {
+    let admin_state = Arc::new(AdminState {
+        dashboard: Arc::clone(&dashboard),
+        token: admin_cfg.token.clone(),
+    });
+    let admin_app = admin_router(admin_state);
+    let admin_addr = format!("0.0.0.0:{}", admin_cfg.port);
+    let admin_listener = tokio::net::TcpListener::bind(&admin_addr).await.unwrap();
+    tokio::spawn(async move {
+        axum::serve(admin_listener, admin_app).await.unwrap();
+    });
+}
+
 
     // Watch config.yaml for changes
     Config::start_watcher("config.yaml", tx);
