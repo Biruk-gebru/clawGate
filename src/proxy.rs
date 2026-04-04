@@ -167,6 +167,15 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         if let Some(info) = dash.backends.iter_mut().find(|b| b.url == available_backend) {
             info.request_count += 1;
             info.last_hit = Some(Instant::now());
+            // Track latency for sparkline (last 30 samples)
+            info.latency_history.push_back(duration);
+            if info.latency_history.len() > 30 {
+                info.latency_history.pop_front();
+            }
+            // Track 5xx for error rate bar
+            if status.as_u16() >= 500 {
+                info.error_count += 1;
+            }
         }
         dash.total_request += 1;
 
