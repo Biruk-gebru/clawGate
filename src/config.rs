@@ -118,6 +118,13 @@ pub struct Config {
     pub rate_limit: Option<RateLimitConfig>,
     pub max_body_size_mb: Option<u64>,
     pub access_log: Option<AccessLogConfig>,
+    pub admin: Option<AdminConfig>,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct AdminConfig {
+    pub port: u16,
+    pub token: String
 }
 
 impl Config {
