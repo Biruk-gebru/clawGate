@@ -5,12 +5,13 @@ use axum::body::Body;
 use axum::extract::State;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use rand::RngExt;
 
 use metrics::{gauge, counter, histogram};
 
 use crate::balancer::SharedState;
+use crate::config::LogRecord;
 use crate::dashboard::RequestLog;
 
 struct ConnectionGuard(Arc<AtomicI64>, String);
@@ -30,7 +31,11 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     let uri = parts.uri;
     let headers = parts.headers;
     let path = uri.path();
-    let request_id = headers.get("X-Request-ID").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
+    let request_id = headers
+        .get("X-Request-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
 
     let route_state = state.routes.iter().find(|r| crate::router::match_route(&r.config, path, &headers));
 
@@ -40,7 +45,8 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     };
 
     if let Some(max) = state.max_body_bytes {
-        if let Some(cl) = headers.get(axum::http::header::CONTENT_LENGTH)
+        if let Some(cl) = headers
+            .get(axum::http::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok())
         {
@@ -55,7 +61,12 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         Ok(b) => b,
         Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "Body too large").into_response(),
     };
-    let client_ip = headers.get("X-Forwarded-For").and_then(|e| e.to_str().ok()).unwrap_or("");
+
+    let client_ip = headers
+        .get("X-Forwarded-For")
+        .and_then(|e| e.to_str().ok())
+        .unwrap_or("")
+        .to_string();
 
     // Per-IP rate limit (fails open if client_ip isn't parseable)
     if let Some(limiter) = &state.rate_limiter {
@@ -74,18 +85,19 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
 
         let roll: u32 = rand::rng().random_range(0..total_weight);
         let mut cumulative = 0u32;
-        let chosen_group = split_groups.iter().find(|g| {
-            cumulative += g.weight;
-            roll < cumulative
-        }).expect("cumulative weight must cover roll");
+        let chosen_group = split_groups
+            .iter()
+            .find(|g| {
+                cumulative += g.weight;
+                roll < cumulative
+            })
+            .expect("cumulative weight must cover roll");
 
-        // Round-robin within the chosen group
         let idx = route.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             % chosen_group.backends.len();
         chosen_group.backends[idx].clone()
     } else {
-        // No split config, use normal balancing
-        match route.next_backend(client_ip, state.balancing) {
+        match route.next_backend(&client_ip, state.balancing) {
             Some(b) => b,
             None => return (StatusCode::SERVICE_UNAVAILABLE, "No healthy backends available").into_response(),
         }
@@ -94,7 +106,8 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     // Increment active connections; RAII guard decrements on return.
     let conn_arc: Option<Arc<AtomicI64>> = {
         let mut dash = state.global_dashboard.lock().unwrap();
-        dash.backends.iter_mut()
+        dash.backends
+            .iter_mut()
             .find(|b| b.url == available_backend)
             .map(|info| {
                 info.active_connections.fetch_add(1, Ordering::Relaxed);
@@ -102,16 +115,18 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
             })
     };
     let backend_label = available_backend.clone();
-    gauge!("active_connections", "backend" => backend_label).set(conn_arc.as_ref().map_or(0, |a| a.load(Ordering::Relaxed)) as f64);
+    gauge!("active_connections", "backend" => backend_label)
+        .set(conn_arc.as_ref().map_or(0, |a| a.load(Ordering::Relaxed)) as f64);
     let _guard = conn_arc.map(|arc| ConnectionGuard(arc, available_backend.clone()));
 
-    // Save copies before method/uri are moved into the reqwest call
+    // Save owned copies before method/uri are moved into the reqwest call
     let method_str = method.to_string();
     let path_str = uri.to_string();
 
     let target_uri = format!("{}{}", available_backend, uri);
 
-    let proxy_response = client.request(method, target_uri)
+    let proxy_response = client
+        .request(method, target_uri)
         .headers(headers)
         .body(bytes)
         .send()
@@ -129,7 +144,26 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     counter!("request_count", "backend" => available_backend.clone(), "status" => status.to_string()).increment(1);
     histogram!("request_duration", "backend" => available_backend.clone(), "status" => status.to_string()).record(duration as f64);
 
-    // Record to dashboard (scoped so the lock drops before the .await)
+    // Fire-and-forget: non-blocking send to background log writer.
+    // try_send() drops the record silently if the channel is full — never stalls the request path.
+    if let Some(log_tx) = &state.log_tx {
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = log_tx.try_send(LogRecord {
+            timestamp: format!("{}", secs),
+            request_id: request_id.clone(),
+            method: method_str.clone(),
+            path: path_str.clone(),
+            backend: available_backend.clone(),
+            status: status.as_u16(),
+            duration_ms: duration,
+            client_ip: client_ip.clone(),
+        });
+    }
+
+    // Record to TUI dashboard (scoped so the lock drops before the .await)
     {
         let mut dash = state.global_dashboard.lock().unwrap();
 
@@ -145,13 +179,13 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
             backends: available_backend,
             status: status.as_u16(),
             duration_ms: duration,
-            request_id: request_id,
+            request_id,
         });
 
         if dash.recent_request.len() > 20 {
             dash.recent_request.pop_back();
         }
-    } // lock released here
+    }
 
     let body = response.bytes().await.unwrap();
 
