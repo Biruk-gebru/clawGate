@@ -48,3 +48,6 @@ rate_limit:
   requests: 100
   window_secs: 1
   per: ip 
+access_log:
+  path: "./access.log"
+  enabled: true
