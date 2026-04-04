@@ -250,7 +250,7 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         }
     }
 
-    let header_cells = ["Method", "Path", "Backend", "Status", "Time (ms)"]
+    let header_cells = ["Req-ID", "Method", "Path", "Backend", "Status", "Time (ms)"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells).height(1);
@@ -266,7 +266,10 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
                 _ => Color::White,
             };
 
+            // Show only first 8 chars of UUID — enough to distinguish requests
+            let short_id = log.request_id.chars().take(8).collect::<String>();
             Row::new([
+                Cell::from(short_id).style(Style::default().fg(Color::DarkGray)),
                 Cell::from(log.method.clone()),
                 Cell::from(log.path.clone()),
                 Cell::from(log.backends.clone()),
@@ -279,11 +282,12 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
     let log_table = Table::new(
         rows,
         [
-            Constraint::Length(8),
-            Constraint::Min(20),
-            Constraint::Length(22),
-            Constraint::Length(7),
-            Constraint::Length(10),
+            Constraint::Length(9),   // Req-ID (8 chars + gap)
+            Constraint::Length(8),   // Method
+            Constraint::Min(20),     // Path
+            Constraint::Length(22),  // Backend
+            Constraint::Length(7),   // Status
+            Constraint::Length(10),  // Time
         ],
     )
     .header(header)
