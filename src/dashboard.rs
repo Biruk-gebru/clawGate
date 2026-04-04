@@ -26,6 +26,8 @@ pub struct BackendInfo {
     pub url: String,
     pub weight: u32,
     pub request_count: u64,
+    pub error_count: u64,                    // 5xx responses — for error rate bar
+    pub latency_history: VecDeque<u128>,     // last 30 request durations (ms) — for sparkline
     pub last_hit: Option<Instant>,
     pub health_path: String,
     pub is_healthy: bool,
@@ -54,6 +56,9 @@ pub struct DashboardState {
     pub health_check_interval_secs: u64,
     pub selected_backend: usize,
     pub pinned_backend: Option<usize>,
+    pub current_tab: usize,      // 0=Overview, 1=Request Log, 2=Config
+    pub search_mode: bool,       // true when user pressed '/' to filter
+    pub search_query: String,    // the current filter string
 }
 
 #[derive(Serialize)]
