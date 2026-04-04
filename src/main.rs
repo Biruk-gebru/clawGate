@@ -53,8 +53,6 @@ async fn main() {
     // Pre-parse CIDRs at startup so we don't parse per-request
     let ip_rules_arc = Arc::new(config_data.ip_rules.as_ref().map(IpRules::from_config));
 
-    let _recorder = metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder();
-
     // Dashboard must be built before routes so we can clone the Arc into each RouteState
     let dashboard: SharedDashboard = Arc::new(Mutex::new(DashboardState {
         backends: config_data.backends.iter().map(|b| {
@@ -220,8 +218,10 @@ async fn main() {
             .layer(RateLimitLayer::new(100, Duration::from_secs(1))))
         .layer(TraceLayer::new_for_http());
 
+    let record_handle = metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder().expect("Failed to install Prometheus recorder");
+        
     let metrics_app = Router::new()
-        .route("/metrics", get(|| async { "Metrics" }));
+        .route("/metrics", get(move || async move { record_handle.render() }));
     let metrics_listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await.unwrap();
     tokio::spawn(async move {
         axum::serve(metrics_listener, metrics_app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
