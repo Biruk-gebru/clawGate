@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicI64;
+use serde::Serialize;
 
 #[derive(Clone, Debug)]
 pub enum CircuitState {
@@ -54,5 +55,16 @@ pub struct DashboardState {
     pub selected_backend: usize,
     pub pinned_backend: Option<usize>,
 }
+
+#[derive(Serialize)]
+pub struct BackendDto {
+    pub url: String,
+    pub healthy: bool,
+    pub manually_disabled: bool,
+    pub request_count: u64,
+    pub active_connections: i64,
+    pub route_label: String,
+}
+
 
 pub type SharedDashboard = Arc<Mutex<DashboardState>>; 
