@@ -12,7 +12,7 @@ use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
 use crate::middleware::ip_rules::{ip_filter, IpRules};
 use crate::middleware::auth::require_auth;
-use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig};
+use crate::config::{Config, BackendConfig, BalancingMode, RouteConfig, LogRecord};
 use crate::dashboard::{BackendInfo, CircuitState, DashboardState, SharedDashboard};
 use crate::rate_limiter::RateLimiter;
 use crate::middleware::request_id::check_and_inject_request_id;
@@ -52,6 +52,27 @@ async fn main() {
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
     // Pre-parse CIDRs at startup so we don't parse per-request
     let ip_rules_arc = Arc::new(config_data.ip_rules.as_ref().map(IpRules::from_config));
+
+    // Access log: create channel; spawn writer only if access_log is configured and enabled
+    let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<LogRecord>(256);
+    if let Some(ref al) = config_data.access_log {
+        if al.enabled {
+            let log_path = al.path.clone();
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                let mut file: tokio::fs::File = tokio::fs::OpenOptions::new()
+                    .create(true).append(true).open(&log_path).await
+                    .expect("Failed to open access log");
+                while let Some(record) = log_rx.recv().await {
+                    if let Ok(mut line) = serde_json::to_string(&record) {
+                        line.push('\n');
+                        let _ = file.write_all(line.as_bytes()).await;
+                    }
+                }
+            });
+        }
+    }
+
 
     // Dashboard must be built before routes so we can clone the Arc into each RouteState
     let dashboard: SharedDashboard = Arc::new(Mutex::new(DashboardState {
@@ -127,6 +148,7 @@ async fn main() {
         balancing: config_data.balancing,
         rate_limiter: rate_limiter.clone(),
         max_body_bytes,
+        log_tx: Some(log_tx),
     });
 
     // Start the health checker
