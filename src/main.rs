@@ -89,6 +89,8 @@ async fn main() {
                 url: b.url.clone(),
                 health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
                 request_count: 0,
+                error_count: 0,
+                latency_history: VecDeque::new(),
                 weight: b.weight,
                 last_hit: None,
                 is_healthy: true,
@@ -106,6 +108,9 @@ async fn main() {
         health_check_interval_secs: interval_secs,
         selected_backend: 0,
         pinned_backend: None,
+        current_tab: 0,
+        search_mode: false,
+        search_query: String::new(),
     }));
 
     // Build one RouteState per route; if no routes block, synthesise a catch-all.
@@ -199,6 +204,8 @@ async fn main() {
                             url: bc.url.clone(),
                             health_path: bc.health_path.clone().unwrap_or_else(|| "/".to_string()),
                             request_count: 0,
+                            error_count: 0,
+                            latency_history: VecDeque::new(),
                             weight: bc.weight,
                             last_hit: None,
                             is_healthy: true,
