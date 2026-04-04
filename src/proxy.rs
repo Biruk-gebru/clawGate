@@ -5,8 +5,9 @@ use axum::body::Body;
 use axum::extract::State;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 use rand::RngExt;
+use chrono::Utc;
 
 use metrics::{gauge, counter, histogram};
 
@@ -147,12 +148,8 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     // Fire-and-forget: non-blocking send to background log writer.
     // try_send() drops the record silently if the channel is full — never stalls the request path.
     if let Some(log_tx) = &state.log_tx {
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
         let _ = log_tx.try_send(LogRecord {
-            timestamp: format!("{}", secs),
+            timestamp: Utc::now().to_rfc3339(),
             request_id: request_id.clone(),
             method: method_str.clone(),
             path: path_str.clone(),

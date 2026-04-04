@@ -25,3 +25,4 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 metrics = "0.24.3"
 metrics-exporter-prometheus = "0.18.1"
 uuid = { version = "1", features = ["v4"] }
+chrono = "0.4.44"
