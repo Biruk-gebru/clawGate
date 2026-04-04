@@ -51,3 +51,7 @@ rate_limit:
 access_log:
   path: "./access.log"
   enabled: true
+
+admin:
+  port: 9000
+  token: "thisIsMyAdminTokinSlimShady2IfUWIll"
