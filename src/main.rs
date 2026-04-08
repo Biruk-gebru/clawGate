@@ -35,6 +35,7 @@ use tower::limit::RateLimitLayer;
 use tower::ServiceBuilder;
 use tower::buffer::BufferLayer;
 use tower::BoxError;
+use axum_server::tls_rustls::RustlsConfig;
 
 
 #[tokio::main]
@@ -271,12 +272,22 @@ async fn main() {
     tokio::spawn(async move {
         axum::serve(metrics_listener, metrics_app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
     });
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    // Axum runs in background so the TUI can own the main thread
-    tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
-    });
+    if let Some(tls) = config_data.tls {
+        let rustls_config = RustlsConfig::from_pem_file(tls.cert_path, tls.key_path).await.unwrap();
+        tokio::spawn(async move {
+            axum_server::bind_rustls(SocketAddr::from(([0, 0, 0, 0], 443)), rustls_config)
+                .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                .await
+                .unwrap();
+        });
+    } else {
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+        // Axum runs in background so the TUI can own the main thread
+        tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+        });
+    }
 
     // TUI blocks until the user presses 'q'
     tui::run_tui(dashboard).expect("TUI crashed");
