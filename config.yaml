@@ -54,3 +54,7 @@ access_log:
 admin:
   port: 9000
   token: "thisIsMyAdminTokinSlimShady2IfUWIll"
+
+tls:
+  cert_path: "./cert.pem"
+  key_path: "./key.pem"
