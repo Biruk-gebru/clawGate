@@ -1,3 +1,4 @@
 /target
 /access.log
+/clawgate.log
 *.pem
