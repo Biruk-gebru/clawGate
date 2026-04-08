@@ -126,6 +126,7 @@ pub struct Config {
     pub access_log: Option<AccessLogConfig>,
     pub admin: Option<AdminConfig>,
     pub tls: Option<TlsConfig>,
+    pub http2: Option<bool>,
 }
 
 #[derive(serde::Deserialize, Clone)]
