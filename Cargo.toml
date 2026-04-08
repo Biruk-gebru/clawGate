@@ -7,7 +7,6 @@ edition = "2024"
 axum = "0.8.8"
 crossterm = "0.29.0"
 ipnetwork = "0.21.1"
-jsonwebtoken = "10.3.0"
 notify = "8.2.0"
 rand = "0.10.0"
 ratatui = "0.30.0"
@@ -27,3 +26,4 @@ metrics-exporter-prometheus = "0.18.1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4.44"
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
