@@ -20,7 +20,6 @@ backends:
     weight: 4
   - url: "http://127.0.0.1:4002"
     weight: 2
-  - url: "http://127.0.0.1:4003"
 
 # Phase 8A — path-based routing rules.
 # Evaluated top-to-bottom; first match wins.
