@@ -26,3 +26,4 @@ metrics = "0.24.3"
 metrics-exporter-prometheus = "0.18.1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4.44"
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
