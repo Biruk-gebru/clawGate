@@ -101,6 +101,12 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+#[derive(serde::Deserialize, Clone)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+}
+
 fn default_weight() -> u32 { 1 }
 
 #[derive(serde::Deserialize)]
@@ -119,6 +125,7 @@ pub struct Config {
     pub max_body_size_mb: Option<u64>,
     pub access_log: Option<AccessLogConfig>,
     pub admin: Option<AdminConfig>,
+    pub tls: Option<TlsConfig>,
 }
 
 #[derive(serde::Deserialize, Clone)]
