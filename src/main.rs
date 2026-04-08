@@ -40,8 +40,9 @@ use axum_server::tls_rustls::RustlsConfig;
 
 #[tokio::main]
 async fn main() {
-    // Tracing goes to stderr so it doesn't corrupt the TUI
-    tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+    // Tracing goes to a file so it doesn't corrupt the TUI
+    let log_file = std::fs::File::create("clawgate.log").expect("Failed to create log file");
+    tracing_subscriber::fmt().with_writer(log_file).init();
 
     let config_data: Config = Config::load_config();
     let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
