@@ -2,6 +2,7 @@ use std::fs;
 use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
+use axum_server::tls_rustls::RustlsConfig;
 
 #[derive(serde::Serialize)]
 pub struct LogRecord {
@@ -173,6 +174,25 @@ impl Config {
 
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        });
+    }
+
+    pub fn start_cert_watcher(cert_path: &str, key_path: &str, rustls_config: RustlsConfig) {
+        let cert = cert_path.to_string();
+        let key = key_path.to_string();
+        tokio::spawn(async move {
+            let mut last_mod = fs::metadata(&cert).and_then(|m| m.modified()).unwrap();
+            let mut last_mod_key = fs::metadata(&key).and_then(|m| m.modified()).unwrap();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let current_mod = fs::metadata(&cert).and_then(|m| m.modified()).unwrap();
+                let current_mod_key = fs::metadata(&key).and_then(|m| m.modified()).unwrap();
+                if current_mod != last_mod || current_mod_key != last_mod_key {
+                    last_mod = current_mod;
+                    last_mod_key = current_mod_key;
+                    let _ = rustls_config.reload_from_pem_file(&cert, &key).await;
+                }
             }
         });
     }
