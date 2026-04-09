@@ -280,7 +280,8 @@ async fn main() {
     });
 
     if let Some(tls) = config_data.tls {
-        let rustls_config = RustlsConfig::from_pem_file(tls.cert_path, tls.key_path).await.unwrap();
+        let rustls_config = RustlsConfig::from_pem_file(&tls.cert_path, &tls.key_path).await.unwrap();
+        Config::start_cert_watcher(&tls.cert_path, &tls.key_path, rustls_config.clone());
         tokio::spawn(async move {
             axum_server::bind_rustls(SocketAddr::from(([0, 0, 0, 0], 3000)), rustls_config)
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>())
