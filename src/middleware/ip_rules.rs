@@ -51,10 +51,16 @@ pub async fn ip_filter(request: Request, next: Next, rules: Arc<Option<IpRules>>
         
     let socket_ip: Option<IpAddr> = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
 
-    let client_ip = match frowarded_ip.or(socket_ip) {
+    let mut client_ip = match frowarded_ip.or(socket_ip) {
         Some(ip) => ip,
         None => {return (StatusCode::INTERNAL_SERVER_ERROR, "Could not determine client IP").into_response();}
     };
+
+    if let IpAddr::V6(v6) = client_ip {
+        if let Some(v4) = v6.to_ipv4_mapped() {
+            client_ip = IpAddr::V4(v4);
+        }
+    }
 
     if !rules.is_allowed(client_ip) {
         return (StatusCode::FORBIDDEN, "IP address not allowed").into_response();
