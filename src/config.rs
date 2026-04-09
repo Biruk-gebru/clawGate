@@ -56,6 +56,7 @@ pub struct RouteConfig {
     pub match_header: Option<HeaderMatch>,
     pub split: Option<Vec<SplitGroupConfig>>,  // for 8C canary: [{backends:[...], weight:90}, ...]
     pub label: Option<String>,                 // optional display name shown in TUI
+    pub ip_rules: Option<IpRulesConfig>,
 }
 
 #[derive(serde::Deserialize, Clone, Copy, Default)]
