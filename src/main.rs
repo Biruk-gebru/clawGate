@@ -26,7 +26,7 @@ use reqwest::Client;
 use reqwest::StatusCode;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicI64, AtomicUsize};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
@@ -36,6 +36,7 @@ use tower::ServiceBuilder;
 use tower::buffer::BufferLayer;
 use tower::BoxError;
 use axum_server::tls_rustls::RustlsConfig;
+use arc_swap::ArcSwap;
 
 
 #[tokio::main]
@@ -56,7 +57,7 @@ async fn main() {
     // Shared backend URL list (hot-swappable via config watcher)
     let backends_lock = Arc::new(RwLock::new(initial_urls.clone()));
     // Pre-parse CIDRs at startup so we don't parse per-request
-    let ip_rules_arc = Arc::new(config_data.ip_rules.as_ref().map(IpRules::from_config));
+    let ip_rules_arc = Arc::new(ArcSwap::from_pointee(config_data.ip_rules.as_ref().map(IpRules::from_config)));
 
     // Access log: create channel; spawn writer only if access_log is configured and enabled
     let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<LogRecord>(256);
@@ -114,6 +115,7 @@ async fn main() {
         current_tab: 0,
         search_mode: false,
         search_query: String::new(),
+        blocked_requests: Arc::new(AtomicU64::new(0)),
     }));
 
     // Build one RouteState per route; if no routes block, synthesise a catch-all.
@@ -259,7 +261,12 @@ async fn main() {
 
 
     // Watch config.yaml for changes
-    Config::start_watcher("config.yaml", tx);
+    Config::start_watcher("config.yaml", tx, Arc::clone(&ip_rules_arc));
+
+    let blocked_counter = {
+        let dash = dashboard.lock().unwrap();
+        Arc::clone(&dash.blocked_requests)
+    };
 
     let app = Router::new()
         .fallback(proxy_request)
@@ -268,7 +275,7 @@ async fn main() {
             check_and_inject_request_id(req, next)
         }))
         .layer(from_fn(move |req, next| {
-            ip_filter(req, next, Arc::clone(&ip_rules_arc))
+            ip_filter(req, next, Arc::clone(&ip_rules_arc), Arc::clone(&blocked_counter))
         }))
         .layer(from_fn(move |req, next| {
             require_auth(req, next, Arc::clone(&auth_cfg))
