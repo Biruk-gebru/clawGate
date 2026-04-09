@@ -1,8 +1,11 @@
 use std::fs;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use notify::Watcher;
 use std::path::Path;
 use axum_server::tls_rustls::RustlsConfig;
+use arc_swap::ArcSwap;
+use crate::middleware::ip_rules::IpRules;
 
 #[derive(serde::Serialize)]
 pub struct LogRecord {
@@ -144,7 +147,7 @@ impl Config {
         serde_yaml::from_str(&content).expect("Failed to parse config")
     }
 
-    pub fn start_watcher(path: &str, sender: mpsc::Sender<Vec<BackendConfig>>) {
+    pub fn start_watcher(path: &str, sender: mpsc::Sender<Vec<BackendConfig>>, ip_rules_arc: Arc<ArcSwap<Option<IpRules>>>) {
         let path = path.to_string();
         let path_clone = path.clone();
 
@@ -165,6 +168,7 @@ impl Config {
                                 Err(e) => { eprintln!("Failed to parse config: {}", e); return; }
                             };
                             let _ = sender_clone.blocking_send(config.backends);
+                            ip_rules_arc.store(Arc::new(config.ip_rules.as_ref().map(IpRules::from_config)));
                         }
                     },
                     Err(e) => eprintln!("Error watching file: {:?}", e),
