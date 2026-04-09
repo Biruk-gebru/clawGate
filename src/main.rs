@@ -125,10 +125,16 @@ async fn main() {
                 match_header: None,
                 split: None,
                 label: None,
+                ip_rules: None,
             },
             backends: Arc::clone(&backends_lock),
             counter: AtomicUsize::new(0),
             dashboard: Arc::clone(&dashboard),
+            ip_rules: if let Some(ip_rules) = &config_data.ip_rules {
+                Some(IpRules::from_config(ip_rules))
+            } else {
+                None
+            },
         }]
     } else {
         config_data.routes.iter().map(|r| {
@@ -138,6 +144,9 @@ async fn main() {
                 backends: Arc::new(RwLock::new(urls)),
                 counter: AtomicUsize::new(0),
                 dashboard: Arc::clone(&dashboard),
+                ip_rules: r.ip_rules.as_ref()
+                    .or(config_data.ip_rules.as_ref())
+                    .map(IpRules::from_config),
             }
         }).collect()
     };
