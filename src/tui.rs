@@ -174,15 +174,17 @@ fn render(frame: &mut Frame, dashboard: &SharedDashboard) {
         if dash.current_tab == 1 { " ◀" } else { "" },
         if dash.current_tab == 2 { " ◀" } else { "" },
     );
+    let blocked = dash.blocked_requests.load(std::sync::atomic::Ordering::Relaxed);
+    let blocked_label = if blocked > 0 { format!("  |  Blocked: {}", blocked) } else { String::new() };
     let title_text = if dash.status_msg.is_empty() {
         format!(
-            " 🦀 ClawGate  |  Backends: {}  |  Req: {}  |{}",
-            dash.backends.len(), dash.total_request, tabs_label,
+            " 🦀 ClawGate  |  Backends: {}  |  Req: {}{}  |{}",
+            dash.backends.len(), dash.total_request, blocked_label, tabs_label,
         )
     } else {
         format!(
-            " 🦀 ClawGate  |  Req: {}  |  {}  |{}",
-            dash.total_request, dash.status_msg, tabs_label,
+            " 🦀 ClawGate  |  Req: {}{}  |  {}  |{}",
+            dash.total_request, blocked_label, dash.status_msg, tabs_label,
         )
     };
 
