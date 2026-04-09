@@ -1,10 +1,12 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use axum::extract::{ConnectInfo, Request};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use ipnetwork::IpNetwork;
+use arc_swap::ArcSwap;
 
 use crate::config::{IpRulesConfig, IpRulesMode};
 
@@ -37,8 +39,9 @@ impl IpRules {
     }
 }
 
-pub async fn ip_filter(request: Request, next: Next, rules: Arc<Option<IpRules>>) -> impl IntoResponse {
-    let Some(rules) = rules.as_ref() else {
+pub async fn ip_filter(request: Request, next: Next, rules: Arc<ArcSwap<Option<IpRules>>>, blocked: Arc<AtomicU64>) -> impl IntoResponse {
+    let loaded = rules.load();
+    let Some(ref rules) = **loaded else {
         return next.run(request).await;
     };
 
@@ -63,6 +66,7 @@ pub async fn ip_filter(request: Request, next: Next, rules: Arc<Option<IpRules>>
     }
 
     if !rules.is_allowed(client_ip) {
+        blocked.fetch_add(1, Ordering::Relaxed);
         return (StatusCode::FORBIDDEN, "IP address not allowed").into_response();
     }
 
