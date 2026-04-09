@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use serde::Serialize;
 
 #[derive(Clone, Debug)]
@@ -59,6 +59,7 @@ pub struct DashboardState {
     pub current_tab: usize,      // 0=Overview, 1=Request Log, 2=Config
     pub search_mode: bool,       // true when user pressed '/' to filter
     pub search_query: String,    // the current filter string
+    pub blocked_requests: Arc<AtomicU64>,
 }
 
 #[derive(Serialize)]
