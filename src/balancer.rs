@@ -8,6 +8,7 @@ use crate::dashboard::{SharedDashboard, CircuitState};
 use crate::config::{BalancingMode, RouteConfig};
 use crate::rate_limiter::RateLimiter;
 use crate::config::LogRecord;
+use crate::middleware::ip_rules::IpRules;
 
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
@@ -17,6 +18,7 @@ pub struct RouteState {
     pub backends: Arc<RwLock<Vec<String>>>,
     pub counter: AtomicUsize,
     pub dashboard: SharedDashboard,
+    pub ip_rules: Option<IpRules>,
 }
 
 impl RouteState {
