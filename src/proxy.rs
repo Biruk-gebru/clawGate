@@ -69,6 +69,14 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         .unwrap_or("")
         .to_string();
 
+    if let Some(ip_rules) = &route.ip_rules {
+        if let Ok(ip) = client_ip.parse::<std::net::IpAddr>() {
+            if !ip_rules.is_allowed(ip) {
+                return (StatusCode::FORBIDDEN, "IP address not allowed").into_response();
+            }
+        }
+    }
+
     // Per-IP rate limit (fails open if client_ip isn't parseable)
     if let Some(limiter) = &state.rate_limiter {
         if let Ok(ip_addr) = client_ip.parse::<std::net::IpAddr>() {
