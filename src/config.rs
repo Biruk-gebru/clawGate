@@ -132,12 +132,19 @@ pub struct Config {
     pub admin: Option<AdminConfig>,
     pub tls: Option<TlsConfig>,
     pub http2: Option<bool>,
+    pub etcd: Option<EtcdConfig>,
 }
 
 #[derive(serde::Deserialize, Clone)]
 pub struct AdminConfig {
     pub port: u16,
-    pub token: String
+    pub token: String,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct EtcdConfig {
+    pub endpoint: String,
+    pub key: String,
 }
 
 impl Config {
