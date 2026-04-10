@@ -13,12 +13,22 @@ use crate::config::BackendConfig;
 /// - url: "http://127.0.0.1:4001"
 /// ```
 pub async fn start_etcd_watcher(endpoint: &str, key: &str, sender: mpsc::Sender<Vec<BackendConfig>>) {
-    let mut client = Client::connect([endpoint], None)
-        .await
-        .expect("Failed to connect to etcd");
+    let mut client = match Client::connect([endpoint], None).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("etcd: failed to connect ({}), falling back to local config", e);
+            return;
+        }
+    };
 
     // Load the initial value
-    let resp = client.get(key.as_bytes(), None).await.expect("Failed to get key from etcd");
+    let resp = match client.get(key.as_bytes(), None).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("etcd: failed to read key ({}), falling back to local config", e);
+            return;
+        }
+    };
     if let Some(kv) = resp.kvs().first() {
         if let Ok(backends) = serde_yaml::from_slice::<Vec<BackendConfig>>(kv.value()) {
             let _ = sender.send(backends).await;
