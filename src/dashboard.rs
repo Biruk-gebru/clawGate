@@ -11,6 +11,23 @@ pub enum CircuitState {
     HalfOpen,
 }
 
+impl CircuitState {
+    pub fn to_db_string(&self) -> &str {
+        match self {
+            CircuitState::Closed => "closed",
+            CircuitState::Open { .. } => "open",
+            CircuitState::HalfOpen => "half_open",
+        }
+    }
+
+    pub fn from_db_string(s: &str) -> Self {
+        match s {
+            "half_open" => CircuitState::HalfOpen,
+            _ => CircuitState::Closed,
+        }
+    }
+}
+
 impl PartialEq for CircuitState {
     fn eq(&self, other: &Self) -> bool {
         matches!(
