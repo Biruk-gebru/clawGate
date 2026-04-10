@@ -8,6 +8,7 @@ mod health;
 mod router;
 mod rate_limiter;
 mod admin;
+mod persistence;
 
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
@@ -44,6 +45,10 @@ async fn main() {
     // Tracing goes to a file so it doesn't corrupt the TUI
     let log_file = std::fs::File::create("clawgate.log").expect("Failed to create log file");
     tracing_subscriber::fmt().with_writer(log_file).init();
+
+    let db = sqlx::SqlitePool::connect("sqlite://clawgate_state.db?mode=rwc").await.expect("Failed to connect to SQLite");
+    persistence::init_db(&db).await;
+    let saved_state = persistence::load_state(&db).await;
 
     let config_data: Config = Config::load_config();
     let interval_secs = config_data.health_check_interval_secs.unwrap_or(5);
@@ -89,18 +94,19 @@ async fn main() {
                     .unwrap_or_else(|| r.match_pattern.clone().unwrap_or_else(|| "*".to_string())))
                 .unwrap_or_else(|| "default".to_string());
 
+            let saved = saved_state.iter().find(|s| s.url == b.url);
             BackendInfo {
                 url: b.url.clone(),
                 health_path: b.health_path.clone().unwrap_or_else(|| "/".to_string()),
-                request_count: 0,
-                error_count: 0,
+                request_count: saved.map_or(0, |s| s.request_count as u64),
+                error_count: saved.map_or(0, |s| s.error_count as u64),
                 latency_history: VecDeque::new(),
                 weight: b.weight,
                 last_hit: None,
                 is_healthy: true,
                 last_checked: None,
-                circuit_state: CircuitState::Closed,
-                failed_count: 0,
+                circuit_state: saved.map_or(CircuitState::Closed, |s| CircuitState::from_db_string(&s.circuit_state)),
+                failed_count: saved.map_or(0, |s| s.failed_count as u64),
                 manually_disabled: false,
                 active_connections: Arc::new(AtomicI64::new(0)),
                 route_label: label,
@@ -313,7 +319,13 @@ async fn main() {
     }
 
     // TUI blocks until the user presses 'q'
-    tui::run_tui(dashboard).expect("TUI crashed");
+    tui::run_tui(Arc::clone(&dashboard)).expect("TUI crashed");
+
+    // Save state to SQLite on exit
+    {
+        let dash = dashboard.lock().unwrap();
+        persistence::save_state(&db, &dash.backends).await;
+    }
 }
 
 /// Expands a backend list into a rotation Vec, repeating each URL `weight` times.
