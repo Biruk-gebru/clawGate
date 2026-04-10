@@ -58,3 +58,7 @@ admin:
 tls:
   cert_path: "./cert.pem"
   key_path: "./key.pem"
+
+etcd:                                                                                                                        
+  endpoint: "http://localhost:2379"                                                                                          
+  key: "/clawgate/backends"
