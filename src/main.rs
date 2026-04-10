@@ -9,6 +9,7 @@ mod router;
 mod rate_limiter;
 mod admin;
 mod persistence;
+mod etcd_config;
 
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
@@ -267,7 +268,17 @@ async fn main() {
 
 
     // Watch config.yaml for changes
-    Config::start_watcher("config.yaml", tx, Arc::clone(&ip_rules_arc));
+    Config::start_watcher("config.yaml", tx.clone(), Arc::clone(&ip_rules_arc));
+
+    // Start etcd watcher if configured
+    if let Some(ref etcd_cfg) = config_data.etcd {
+        let endpoint = etcd_cfg.endpoint.clone();
+        let key = etcd_cfg.key.clone();
+        let etcd_tx = tx.clone();
+        tokio::spawn(async move {
+            etcd_config::start_etcd_watcher(&endpoint, &key, etcd_tx).await;
+        });
+    }
 
     let blocked_counter = {
         let dash = dashboard.lock().unwrap();
