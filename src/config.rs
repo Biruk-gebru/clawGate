@@ -133,6 +133,7 @@ pub struct Config {
     pub tls: Option<TlsConfig>,
     pub http2: Option<bool>,
     pub etcd: Option<EtcdConfig>,
+    pub gossip: Option<GossipConfig>,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -145,6 +146,13 @@ pub struct AdminConfig {
 pub struct EtcdConfig {
     pub endpoint: String,
     pub key: String,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct GossipConfig {
+    pub node_id: String,
+    pub listen_port: u16,
+    pub seed_nodes: Vec<String>,
 }
 
 impl Config {
