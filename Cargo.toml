@@ -30,3 +30,5 @@ jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 arc-swap = "1.9.1"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
 etcd-client = "0.18.0"
+chitchat = "0.10.0"
+anyhow = "1.0.102"
