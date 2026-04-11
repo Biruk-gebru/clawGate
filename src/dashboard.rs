@@ -94,4 +94,37 @@ pub struct BackendDto {
 }
 
 
-pub type SharedDashboard = Arc<Mutex<DashboardState>>; 
+pub type SharedDashboard = Arc<Mutex<DashboardState>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn circuit_state_roundtrip_closed() {
+        let state = CircuitState::Closed;
+        assert_eq!(state.to_db_string(), "closed");
+        assert_eq!(CircuitState::from_db_string("closed"), CircuitState::Closed);
+    }
+
+    #[test]
+    fn circuit_state_roundtrip_half_open() {
+        let state = CircuitState::HalfOpen;
+        assert_eq!(state.to_db_string(), "half_open");
+        assert_eq!(CircuitState::from_db_string("half_open"), CircuitState::HalfOpen);
+    }
+
+    #[test]
+    fn circuit_state_open_restores_as_closed() {
+        let state = CircuitState::Open { tripped_at: Instant::now() };
+        assert_eq!(state.to_db_string(), "open");
+        // Open can't be restored (Instant is lost), so it becomes Closed
+        assert_eq!(CircuitState::from_db_string("open"), CircuitState::Closed);
+    }
+
+    #[test]
+    fn circuit_state_unknown_string_defaults_to_closed() {
+        assert_eq!(CircuitState::from_db_string("garbage"), CircuitState::Closed);
+        assert_eq!(CircuitState::from_db_string(""), CircuitState::Closed);
+    }
+}
