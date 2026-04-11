@@ -8,6 +8,8 @@ use crate::config::AuthConfig;
 
 type Claims = std::collections::HashMap<String, serde_json::Value>;
 
+/// Middleware that validates JWT tokens from the Authorization header.
+/// Passes through if no auth config is set.
 pub async fn require_auth(
     request: Request,
     next: Next,

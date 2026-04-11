@@ -3,15 +3,9 @@ use etcd_client::{Client, EventType, WatchOptions, WatchStream};
 
 use crate::config::BackendConfig;
 
-/// Connects to etcd, reads the initial backend config from the given key,
-/// then watches for changes and sends updated backend lists through the channel.
-///
-/// The value stored in etcd should be a YAML array of BackendConfig entries:
-/// ```yaml
-/// - url: "http://127.0.0.1:4000"
-///   weight: 3
-/// - url: "http://127.0.0.1:4001"
-/// ```
+/// Connects to etcd, loads the initial backend config, then watches for changes.
+/// Updated backend lists are sent through the same channel as the config file watcher.
+/// Falls back gracefully if etcd is unreachable.
 pub async fn start_etcd_watcher(endpoint: &str, key: &str, sender: mpsc::Sender<Vec<BackendConfig>>) {
     let mut client = match Client::connect([endpoint], None).await {
         Ok(c) => c,

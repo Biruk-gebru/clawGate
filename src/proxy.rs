@@ -15,6 +15,7 @@ use crate::balancer::SharedState;
 use crate::config::LogRecord;
 use crate::dashboard::RequestLog;
 
+/// RAII guard that decrements a backend's active connection count on drop.
 struct ConnectionGuard(Arc<AtomicI64>, String);
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
@@ -23,6 +24,8 @@ impl Drop for ConnectionGuard {
     }
 }
 
+/// Main request handler. Matches the request to a route, selects a backend,
+/// forwards the request, and records metrics.
 pub async fn proxy_request(State(state): State<SharedState>, request: AxumRequest) -> impl IntoResponse {
     let client = &state.client;
     let start_time = Instant::now();

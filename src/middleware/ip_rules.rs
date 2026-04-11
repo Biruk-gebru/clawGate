@@ -10,6 +10,7 @@ use arc_swap::ArcSwap;
 
 use crate::config::{IpRulesConfig, IpRulesMode};
 
+/// Pre-parsed CIDR rules for IP allowlist/denylist filtering.
 pub struct IpRules {
     pub mode: IpRulesMode,
     pub networks: Vec<IpNetwork>,
@@ -39,6 +40,8 @@ impl IpRules {
     }
 }
 
+/// Middleware that checks the client IP against the current IP rules.
+/// Increments the blocked counter on rejection.
 pub async fn ip_filter(request: Request, next: Next, rules: Arc<ArcSwap<Option<IpRules>>>, blocked: Arc<AtomicU64>) -> impl IntoResponse {
     let loaded = rules.load();
     let Some(ref rules) = **loaded else {

@@ -1,6 +1,7 @@
 use crate::config::RouteConfig;
 use axum::http::HeaderMap;
 
+/// Checks if a request path matches a route pattern (exact, glob prefix, or catch-all).
 pub fn matches_path(pattern: &str, path: &str) -> bool {
     match pattern {
         "*" => true,

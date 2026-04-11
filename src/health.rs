@@ -3,6 +3,8 @@ use reqwest::Client;
 use std::time::{Duration, Instant};
 use tokio::time;
 
+/// Spawns a background task that pings each backend's health endpoint
+/// and drives the circuit breaker state machine (Closed -> Open -> HalfOpen).
 pub fn start_health_checker(
     dashboard: SharedDashboard,
     client: Client,

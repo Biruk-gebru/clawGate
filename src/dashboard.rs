@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicI64, AtomicU64};
 use serde::Serialize;
 
+/// Circuit breaker state machine: Closed (normal) -> Open (tripped) -> HalfOpen (probing).
 #[derive(Clone, Debug)]
 pub enum CircuitState {
     Closed,
@@ -39,6 +40,7 @@ impl PartialEq for CircuitState {
     }
 }
 
+/// Runtime state for a single backend server, shared between proxy, health checker, and TUI.
 pub struct BackendInfo {
     pub url: String,
     pub weight: u32,
@@ -56,6 +58,7 @@ pub struct BackendInfo {
     pub route_label: String,
 }
 
+/// A single proxied request, stored in the TUI's recent request log.
 pub struct RequestLog {
     pub method: String,
     pub path: String, 
@@ -65,6 +68,7 @@ pub struct RequestLog {
     pub request_id: String,
 }
 
+/// Central state shared between all components via Arc<Mutex>.
 pub struct DashboardState {
     pub backends: Vec<BackendInfo>,
     pub recent_request: VecDeque<RequestLog>,

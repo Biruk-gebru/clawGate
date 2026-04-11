@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use dashmap::DashMap;
 
+/// Sliding window of request timestamps for a single IP.
 pub struct RateBucket {
     pub timestamps: VecDeque<Instant>,
 }

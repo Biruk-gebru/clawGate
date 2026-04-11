@@ -13,6 +13,7 @@ use crate::middleware::ip_rules::IpRules;
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 
+/// Per-route state: owns a backend pool, round-robin counter, and dashboard reference.
 pub struct RouteState {
     pub config: RouteConfig,
     pub backends: Arc<RwLock<Vec<String>>>,
@@ -81,8 +82,10 @@ impl RouteState {
     }
 }
 
+/// Shared reference to the gateway state, passed to every request handler.
 pub type SharedState = Arc<GateWayState>;
 
+/// Top-level gateway state shared across all routes and request handlers.
 pub struct GateWayState {
     pub routes: Vec<RouteState>,
     pub client: Client,

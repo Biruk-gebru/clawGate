@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use crate::dashboard::BackendInfo;
 
+/// Flat DTO for SQLite storage. Maps to the `backend_state` table.
 #[derive(sqlx::FromRow)]
 pub struct PersistedBackend {
     pub url: String,
@@ -10,6 +11,7 @@ pub struct PersistedBackend {
     pub circuit_state: String,
 }
 
+/// Creates the `backend_state` table if it doesn't exist.
 pub async fn init_db(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS backend_state (
@@ -25,6 +27,7 @@ pub async fn init_db(pool: &SqlitePool) {
     .expect("Failed to create backend_state table");
 }
 
+/// Loads all saved backend state from SQLite.
 pub async fn load_state(pool: &SqlitePool) -> Vec<PersistedBackend> {
     sqlx::query_as::<_, PersistedBackend>("SELECT * FROM backend_state")
         .fetch_all(pool)
@@ -32,6 +35,7 @@ pub async fn load_state(pool: &SqlitePool) -> Vec<PersistedBackend> {
         .unwrap_or_default()
 }
 
+/// Saves current backend state to SQLite. Clears the table first (auto-cleanup).
 pub async fn save_state(pool: &SqlitePool, backends: &[BackendInfo]) {
     sqlx::query("DELETE FROM backend_state")
         .execute(pool)
