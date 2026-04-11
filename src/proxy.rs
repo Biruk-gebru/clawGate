@@ -93,17 +93,19 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     // otherwise standard load balancing.
     let available_backend: String = if let Some(split_groups) = &route.config.split {
         let total_weight: u32 = split_groups.iter().map(|g| g.weight).sum();
-        assert!(total_weight > 0, "Split weights must sum to a positive number");
+        if total_weight == 0 {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Split weights sum to zero").into_response();
+        }
 
         let roll: u32 = rand::rng().random_range(0..total_weight);
         let mut cumulative = 0u32;
-        let chosen_group = split_groups
-            .iter()
-            .find(|g| {
-                cumulative += g.weight;
-                roll < cumulative
-            })
-            .expect("cumulative weight must cover roll");
+        let chosen_group = match split_groups.iter().find(|g| {
+            cumulative += g.weight;
+            roll < cumulative
+        }) {
+            Some(g) => g,
+            None => return (StatusCode::INTERNAL_SERVER_ERROR, "Split weight mismatch").into_response(),
+        };
 
         let idx = route.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             % chosen_group.backends.len();
@@ -117,7 +119,9 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
 
     // Increment active connections; RAII guard decrements on return.
     let conn_arc: Option<Arc<AtomicI64>> = {
-        let mut dash = state.global_dashboard.lock().unwrap();
+        let Ok(mut dash) = state.global_dashboard.lock() else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Dashboard lock poisoned").into_response();
+        };
         dash.backends
             .iter_mut()
             .find(|b| b.url == available_backend)
@@ -172,8 +176,7 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
     }
 
     // Record to TUI dashboard (scoped so the lock drops before the .await)
-    {
-        let mut dash = state.global_dashboard.lock().unwrap();
+    if let Ok(mut dash) = state.global_dashboard.lock() {
 
         if let Some(info) = dash.backends.iter_mut().find(|b| b.url == available_backend) {
             info.request_count += 1;
@@ -204,11 +207,13 @@ pub async fn proxy_request(State(state): State<SharedState>, request: AxumReques
         }
     }
 
-    let body = response.bytes().await.unwrap();
+    let body = match response.bytes().await {
+        Ok(b) => b,
+        Err(e) => return (StatusCode::BAD_GATEWAY, format!("Failed to read response body: {}", e)).into_response(),
+    };
 
     Response::builder()
         .status(status)
         .body(Body::from(body))
-        .unwrap()
-        .into_response()
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response())
 }
