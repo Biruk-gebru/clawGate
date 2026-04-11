@@ -46,7 +46,9 @@ use arc_swap::ArcSwap;
 async fn main() {
     // Tracing goes to a file so it doesn't corrupt the TUI
     let log_file = std::fs::File::create("clawgate.log").expect("Failed to create log file");
-    tracing_subscriber::fmt().with_writer(log_file).init();
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_writer(log_file).with_env_filter(env_filter).init();
 
     let db = sqlx::SqlitePool::connect("sqlite://clawgate_state.db?mode=rwc").await.expect("Failed to connect to SQLite");
     persistence::init_db(&db).await;
