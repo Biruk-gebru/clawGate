@@ -75,3 +75,63 @@ pub async fn ip_filter(request: Request, next: Next, rules: Arc<ArcSwap<Option<I
 
     next.run(request).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_rules(mode: IpRulesMode, cidrs: &[&str]) -> IpRules {
+        IpRules {
+            mode,
+            networks: cidrs.iter().filter_map(|s| s.parse().ok()).collect(),
+        }
+    }
+
+    #[test]
+    fn denylist_blocks_matching_ip() {
+        let rules = make_rules(IpRulesMode::Denylist, &["192.168.1.0/24"]);
+        let ip: IpAddr = "192.168.1.50".parse().unwrap();
+        assert!(!rules.is_allowed(ip));
+    }
+
+    #[test]
+    fn denylist_allows_non_matching_ip() {
+        let rules = make_rules(IpRulesMode::Denylist, &["192.168.1.0/24"]);
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(rules.is_allowed(ip));
+    }
+
+    #[test]
+    fn allowlist_allows_matching_ip() {
+        let rules = make_rules(IpRulesMode::Allowlist, &["10.0.0.0/8"]);
+        let ip: IpAddr = "10.5.3.1".parse().unwrap();
+        assert!(rules.is_allowed(ip));
+    }
+
+    #[test]
+    fn allowlist_blocks_non_matching_ip() {
+        let rules = make_rules(IpRulesMode::Allowlist, &["10.0.0.0/8"]);
+        let ip: IpAddr = "192.168.1.1".parse().unwrap();
+        assert!(!rules.is_allowed(ip));
+    }
+
+    #[test]
+    fn multiple_cidrs() {
+        let rules = make_rules(IpRulesMode::Denylist, &["192.168.1.0/24", "10.0.0.0/8"]);
+        assert!(!rules.is_allowed("192.168.1.5".parse().unwrap()));
+        assert!(!rules.is_allowed("10.5.0.1".parse().unwrap()));
+        assert!(rules.is_allowed("172.16.0.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn empty_denylist_allows_everything() {
+        let rules = make_rules(IpRulesMode::Denylist, &[]);
+        assert!(rules.is_allowed("1.2.3.4".parse().unwrap()));
+    }
+
+    #[test]
+    fn empty_allowlist_blocks_everything() {
+        let rules = make_rules(IpRulesMode::Allowlist, &[]);
+        assert!(!rules.is_allowed("1.2.3.4".parse().unwrap()));
+    }
+}
