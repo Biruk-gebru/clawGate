@@ -10,6 +10,7 @@ mod rate_limiter;
 mod admin;
 mod persistence;
 mod etcd_config;
+mod gossip;
 
 use crate::balancer::{GateWayState, RouteState};
 use crate::proxy::proxy_request;
@@ -200,6 +201,17 @@ async fn main() {
                 limiter_arc.evict_stale();
             }
         });
+    }
+
+    // Start gossip peer sync if configured
+    if let Some(ref gossip_cfg) = config_data.gossip {
+        let listen_addr = SocketAddr::from(([0, 0, 0, 0], gossip_cfg.listen_port));
+        gossip::start_gossip(
+            gossip_cfg.node_id.clone(),
+            listen_addr,
+            gossip_cfg.seed_nodes.clone(),
+            Arc::clone(&dashboard),
+        ).await;
     }
 
     // Background task: hot-swaps backend lists when config changes
