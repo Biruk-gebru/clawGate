@@ -61,3 +61,45 @@ impl RateLimiter {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bucket_allows_under_limit() {
+        let mut bucket = RateBucket::new();
+        assert!(bucket.is_allowed(3, 60));
+        assert!(bucket.is_allowed(3, 60));
+        assert!(bucket.is_allowed(3, 60));
+    }
+
+    #[test]
+    fn bucket_rejects_over_limit() {
+        let mut bucket = RateBucket::new();
+        assert!(bucket.is_allowed(2, 60));
+        assert!(bucket.is_allowed(2, 60));
+        assert!(!bucket.is_allowed(2, 60));
+    }
+
+    #[test]
+    fn limiter_tracks_per_ip() {
+        let limiter = RateLimiter::new(1, 60);
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+
+        assert!(limiter.check_and_record(ip1));
+        assert!(!limiter.check_and_record(ip1)); // ip1 exhausted
+        assert!(limiter.check_and_record(ip2));  // ip2 still has quota
+    }
+
+    #[test]
+    fn evict_removes_stale_entries() {
+        let limiter = RateLimiter::new(100, 0); // 0-second window = everything is stale
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        limiter.check_and_record(ip);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        limiter.evict_stale();
+        assert_eq!(limiter.map.len(), 0);
+    }
+}
