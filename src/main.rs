@@ -343,12 +343,28 @@ async fn main() {
         });
     }
 
+    // Spawn a background task that saves state on Ctrl+C
+    let shutdown_dashboard = Arc::clone(&dashboard);
+    let shutdown_db = db.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        eprintln!("Ctrl+C received, saving state...");
+        let backends: Vec<_> = shutdown_dashboard.lock()
+            .map(|dash| dash.backends.iter().map(|b| (b.url.clone(), b.request_count, b.error_count, b.failed_count, b.circuit_state.to_db_string().to_string())).collect())
+            .unwrap_or_default();
+        for (url, req, err, fail, circuit) in &backends {
+            let _ = sqlx::query("INSERT OR REPLACE INTO backend_state (url, request_count, error_count, failed_count, circuit_state) VALUES (?, ?, ?, ?, ?)")
+                .bind(url).bind(*req as i64).bind(*err as i64).bind(*fail as i64).bind(circuit)
+                .execute(&shutdown_db).await;
+        }
+        std::process::exit(0);
+    });
+
     // TUI blocks until the user presses 'q'
     tui::run_tui(Arc::clone(&dashboard)).expect("TUI crashed");
 
-    // Save state to SQLite on exit
-    {
-        let dash = dashboard.lock().unwrap();
+    // Save state on clean exit (user pressed 'q')
+    if let Ok(dash) = dashboard.lock() {
         persistence::save_state(&db, &dash.backends).await;
     }
 }
